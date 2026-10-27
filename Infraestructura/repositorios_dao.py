@@ -46,8 +46,24 @@ class RepositoriosDAO:
         res = self._ejecutar(q, (correo,), fetch=True)
         if res:
             u = res[0]
-            return Usuario(u['id'], u['nombre'], u['correo'], u['password_hash'], u['estado'])
+            return Usuario(u['id'], u['nombre'], u['correo'], u['nombre_usuario'], u['password_hash'], u['rol'], u['estado'])
         return None
+
+    def obtener_usuario_por_nombre(self, nombre):
+            q = "SELECT * FROM usuarios WHERE nombre = %s;"
+            res = self._ejecutar(q, (nombre,), fetch=True)
+            if res:
+                u = res[0]
+                return Usuario(u['id'], u['nombre'], u['correo'], u['nombre_usuario'], u['password_hash'], u['rol'], u['estado'])
+            return None
+
+    def obtener_usuario_por_nombre_usuario(self, nombre_usuario):
+                q = "SELECT * FROM usuarios WHERE nombre_usuario = %s;"
+                res = self._ejecutar(q, (nombre_usuario,), fetch=True)
+                if res:
+                    u = res[0]
+                    return Usuario(u['id'], u['nombre'], u['correo'], u['nombre_usuario'], u['password_hash'], u['rol'], u['estado'])
+                return None
 
     def insertar_usuario(self, nombre, correo, usuario, password_hash):
         q = "INSERT INTO usuarios (nombre, correo, nombre_usuario, password_hash) VALUES (%s, %s, %s, %s);"
@@ -56,21 +72,33 @@ class RepositoriosDAO:
     def obtener_todos_usuarios(self):
         q = "SELECT * FROM usuarios;"
         res = self._ejecutar(q, fetch=True)
-        return [Usuario(u['id'], u['nombre'], u['correo'], u['password_hash'], u['estado']) for u in res]
+        return [Usuario(u['id'], u['nombre'], u['correo'], u['nombre_usuario'], u['password_hash'], u['rol'], u['estado']) for u in res]
 
     def actualizar_estado_usuario(self, id_usuario, estado):
         q = "UPDATE usuarios SET estado = %s WHERE id = %s;"
         return self._ejecutar(q, (estado, id_usuario))
 
     # --- Proyectos ---
-    def insertar_proyecto(self, id_usuario, nombre, descripcion, visibilidad):
-        q = "INSERT INTO proyectos (id_usuario, nombre, descripcion, visibilidad) VALUES (%s, %s, %s, %s);"
-        return self._ejecutar(q, (id_usuario, nombre, descripcion, visibilidad))
+    def insertar_proyecto(self, id_usuario, nombre, descripcion, ruta, visibilidad):
+        q = "INSERT INTO proyectos (id_usuario, nombre, descripcion, ruta, visibilidad) VALUES (%s, %s, %s, %s, %s);"
+        id_proyecto = self._ejecutar(q, (id_usuario, nombre, descripcion, ruta, visibilidad))
+        if id_proyecto:
+            # Crear la rama main por defecto para este proyecto
+            self.crear_rama(id_proyecto, "main", None, 'Si')
+        return id_proyecto
+
+    def obtener_fecha_creacion(self, id_proyecto):
+        q = "SELECT fecha_creacion FROM proyectos WHERE id = %s;"
+        res = self._ejecutar(q, (id_proyecto,), fetch=True)
+        if res:
+            p_fecha = res[0]
+            return p_fecha
+        return None
 
     def obtener_proyectos_por_usuario(self, id_usuario):
         q = "SELECT * FROM proyectos WHERE id_usuario = %s;"
         res = self._ejecutar(q, (id_usuario,), fetch=True)
-        return [Proyecto(p['id'], p['id_usuario'], p['nombre'], p['descripcion'], p['visibilidad'], p['fecha_creacion']) for p in res]
+        return [Proyecto(p['id'], p['id_usuario'], p['nombre'], p['descripcion'], p['ruta'], p['visibilidad'], p['fecha_creacion']) for p in res]
 
     def eliminar_proyecto(self, id_proyecto):
         """Elimina el repositorio permanentemente de la BD."""
@@ -82,8 +110,87 @@ class RepositoriosDAO:
         res = self._ejecutar(q, (id_proyecto,), fetch=True)
         if res:
             p = res[0]
-            return Proyecto(p['id'], p['id_usuario'], p['nombre'], p['descripcion'], p['visibilidad'], p['fecha_creacion'])
+            return Proyecto(p['id'], p['id_usuario'], p['nombre'], p['descripcion'], p['ruta'], p['visibilidad'], p['fecha_creacion'])
         return None
+
+    #Funciones para insertar commits
+    def obtener_o_crear_tipo_archivo(self, extension):
+        ext = extension.lower().strip()
+        if not ext: ext = ".txt"
+        q_sel = "SELECT id FROM tipos_archivo WHERE extension = %s;"
+        res = self._ejecutar(q_sel, (ext,), fetch=True)
+        if res:
+            return res[0]['id']
+        nombre_cat = ext.replace(".", "").upper() + " File"
+        q_ins = "INSERT INTO tipos_archivo (nombre, descripcion, extension) VALUES (%s, %s, %s);"
+        return self._ejecutar(q_ins, (nombre_cat, f"Archivos tipo {ext}", ext))
+
+    def obtener_o_crear_archivo(self, id_proyecto, nombre_archivo, ruta_relativa):
+        q_sel = "SELECT * FROM archivos WHERE id_proyecto = %s AND nombre = %s;"
+        res = self._ejecutar(q_sel, (id_proyecto, nombre_archivo), fetch=True)
+        if res:
+            return res[0]['id']
+        ext = os.path.splitext(nombre_archivo)[1]
+        id_tipo = self.obtener_o_crear_tipo_archivo(ext)
+        q_ins = "INSERT INTO archivos (id_proyecto, id_tipo, nombre, ruta_relativa) VALUES (%s, %s, %s, %s);"
+        return self._ejecutar(q_ins, (id_proyecto, id_tipo, nombre_archivo, ruta_relativa))
+
+    def obtener_archivos_por_proyecto(self, id_proyecto):
+        q = "SELECT * FROM archivos WHERE id_proyecto = %s;"
+        res = self._ejecutar(q, (id_proyecto,), fetch=True)
+        return [Archivo(a['id'], a['id_proyecto'], a['id_tipo'], a['nombre'], a['fecha_creacion']) for a in res]
+
+    def obtener_ultima_version_archivo(self, id_archivo):
+        q = """
+            SELECT va.id, va.id_archivo, e.id_usuario, e.hash_version, e.mensaje, e.descripcion,
+                   e.contenido_comprimido, e.fecha, e.id_rama
+            FROM versiones_archivo va
+            INNER JOIN etiquetas e ON va.id_etiqueta = e.id
+            WHERE va.id_archivo = %s
+            ORDER BY e.fecha DESC, va.id DESC LIMIT 1;
+        """
+        res = self._ejecutar(q, (id_archivo,), fetch=True)
+        if res:
+            v = res[0]
+            return VersionArchivo(v['id'], v['id_archivo'], v['id_usuario'], v['hash_version'], v['mensaje'], v.get('descripcion'), v['contenido_comprimido'], v['fecha'], v.get('id_rama'))
+        return None
+
+    def insertar_version_archivo(self, id_archivo, id_etiqueta):
+        """
+        Inserta un registro en 'versiones_archivos' relacionando el archivo con la 'etiqueta' del commit.
+        """
+        q = "INSERT INTO versiones_archivo (id_archivo, id_etiqueta) VALUES (%s, %s);"
+        return self._ejecutar(q, (id_archivo, id_etiqueta))
+
+    #Funciones auxiliares
+    def contar_commits_totales_usuario(self, id_usuario):
+        """
+        Cuenta la cantidad real de commits únicos realizados por el usuario basándose en 'etiqueta'.
+        """
+        q = """
+            SELECT COUNT(DISTINCT e.id) AS total 
+            FROM etiquetas e
+            INNER JOIN versiones_archivo va ON e.id = va.id_etiqueta
+            INNER JOIN archivos a ON va.id_archivo = a.id
+            INNER JOIN proyectos p ON a.id_proyecto = p.id
+            WHERE p.id_usuario = %s;
+        """
+        res = self._ejecutar(q, (id_usuario,), fetch=True)
+        return res[0]['total'] if res else 0
+
+    def obtener_ultima_fecha_commit(self, id_proyecto):
+        """Obtiene la fecha del último commit realizado en el proyecto."""
+        q = """
+            SELECT e.fecha as ultima_fecha FROM etiquetas e
+            INNER JOIN versiones_archivo va ON e.id = va.id_etiqueta
+            INNER JOIN archivos a ON va.id_archivo = a.id
+            WHERE a.id_proyecto = %s ORDER BY e.fecha DESC LIMIT 1;
+        """
+        res = self._ejecutar(q, (id_proyecto,), fetch=True)
+        if res and len(res) > 0 and res[0]['ultima_fecha']:
+            return res[0]['ultima_fecha']
+        return None
+
 
     # --- Archivos ---
     def insertar_archivo(self, id_proyecto, id_tipo, nombre):
@@ -113,9 +220,10 @@ class RepositoriosDAO:
         res = self._ejecutar(q, (id_proyecto,), fetch=True)
         return [VersionArchivo(v['id'], v['id_archivo'], v['id_usuario'], v['hash_version'], v['mensaje'], v['contenido_comprimido'], v['fecha']) for v in res]
 
-    def insertar_rama(self, id_proyecto, nombre, id_version_base):
-        q = "INSERT INTO ramas (id_proyecto, nombre, id_version_base) VALUES (%s, %s, %s);"
-        return self._ejecutar(q, (id_proyecto, nombre, id_version_base))
+    def crear_rama(self, id_proyecto, nombre_rama, id_version_base, activa):
+        """Crea una nueva rama en la tabla 'ramas'."""
+        q = "INSERT INTO ramas (id_proyecto, nombre, id_version_base, activa) VALUES (%s, %s, %s, %s);"
+        return self._ejecutar(q, (id_proyecto, nombre_rama, id_version_base, activa))
 
     # --- Etiquetas ---
     def insertar_etiqueta(self, id_proyecto, nombre, descripcion):

@@ -1,6 +1,6 @@
-from Aplicacion.Servicios.servicioUsuarios import ServicioUsuarios
-from Aplicacion.Servicios.servicioProyectos import ServicioProyectos
-from Aplicacion.Servicios.servicioArchivos import ServicioArchivos
+from Aplicacion.Servicios.ServicioUsuarios import ServicioUsuarios
+from Aplicacion.Servicios.ServicioProyectos import ServicioProyectos
+#from Aplicacion.Servicios.servicioArchivos import ServicioArchivos
 from Aplicacion.Servicios.servicioVersionado import ServicioVersionado
 from Aplicacion.Servicios.servicioEtiquetas import ServicioEtiquetas
 
@@ -12,7 +12,7 @@ class MiniGitFacade:
     def __init__(self):
         self.srv_usuarios = ServicioUsuarios()
         self.srv_proyectos = ServicioProyectos()
-        self.srv_archivos = ServicioArchivos()
+        #self.srv_archivos = ServicioArchivos()
         self.srv_versionado = ServicioVersionado()
         self.srv_etiquetas = ServicioEtiquetas()
 
@@ -21,7 +21,7 @@ class MiniGitFacade:
         return self.srv_usuarios.autenticar(correo, password)
 
     def registrar(self, nombre, correo, usuario, password):
-        return self.srv_usuarios.registrar(nombre, correo, usuario, password)
+        return self.srv_usuarios.registrar_usuario(nombre, correo, usuario, password)
 
     def listar_usuarios(self):
         return self.srv_usuarios.listar_usuarios()
@@ -65,8 +65,8 @@ class MiniGitFacade:
     def comparar_versiones(self, id_version1, id_version2):
         return self.srv_versionado.comparar_versiones(id_version1, id_version2)
 
-    def crear_rama(self, id_proyecto, nombre_rama, id_version_base):
-        return self.srv_versionado.crear_rama(id_proyecto, nombre_rama, id_version_base)
+    def crear_rama(self, id_proyecto, nombre_rama, id_version_base, activa):
+        return self.srv_versionado.crear_rama(id_proyecto, nombre_rama, id_version_base, activa)
 
     def restaurar_version(self, id_proyecto, id_version):
         return self.srv_versionado.restaurar_version(id_proyecto, id_version)

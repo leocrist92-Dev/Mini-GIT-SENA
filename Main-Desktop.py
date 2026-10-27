@@ -4,6 +4,14 @@ import re
 from Aplicacion.Controller.facade import MiniGitFacade
 from Dominio.proyecto import Proyecto
 
+import os
+import sys
+import datetime
+import hashlib
+import zipfile
+import difflib
+import shutil
+
 
 class MainApp(tk.Tk):
     def __init__(self):
@@ -24,7 +32,8 @@ class MainApp(tk.Tk):
             "cyan": "#38bdf8",
             "ok": "#22c55e",
             "warn": "#f59e0b",
-            "border": "#1e293b" # Aproximación a rgba(255,255,255,.14)
+            "border": "#1e293b", # Aproximación a rgba(255,255,255,.14)
+            "fg": "#ffffff"
         }
         
         self.configure(bg=self.colors["bg"])
@@ -74,6 +83,7 @@ class MainApp(tk.Tk):
         # LabelFrames
         style.configure('TLabelFrame', background=self.colors["panel"], bordercolor=self.colors["border"])
         style.configure('TLabelFrame.Label', background=self.colors["panel"], foreground=self.colors["cyan"], font=('Segoe UI', 10, 'bold'))
+        style.configure('TLabelframe', background=self.colors["panel"], bordercolor=self.colors["border"])
         
         # Labels
         style.configure('App.TLabel', background=self.colors["bg"], foreground=self.colors["text"], font=('Segoe UI', 10))
@@ -230,27 +240,33 @@ class HU001_Login(BaseFrame):
         password = self.pass_input.get().strip()
         
         self.login_btn.config(text="Verificando...", state="disabled")
-        self.show_toast("Validando credenciales contra el servicio de autenticación...", "info")
+        #self.show_toast("Validando credenciales contra el servicio de autenticación...", "info")
+        #self.after(1000, self.hide_toast())
         
         try:
             # Llamada directa al método de autenticación del Facade
             usuario = self.controller.facade.autenticar(correo, password)
             if usuario:
                 self.controller.set_usuario_actual(usuario)
-                self.show_toast("✓ Inicio de sesión exitoso.", "success")
+                #self.show_toast("✓ Inicio de sesión exitoso.", "success")
                 self.user_input.delete(0, "end")
                 self.pass_input.delete(0, "end")
                 self.login_btn.config(text="Ingresar")
+                #self.after(1400, self.hide_toast())
                 self.controller.show_frame("HU009_ListarRepositorios")
             else:
-                self.show_toast("✗ Credenciales inválidas.", "error")
+                #self.show_toast("✗ Credenciales inválidas.", "error")
                 self.login_btn.config(text="Ingresar", state="normal")
+                #self.after(1400, self.hide_toast())
         except Exception as e:
-            self.show_toast(f"Error al autenticar: {e}", "error")
+            #self.show_toast(f"Error al autenticar: {e}", "error")
             self.login_btn.config(text="Ingresar", state="normal")
+            #self.after(1400, self.hide_toast())
             
     def recover_pass(self):
-        self.show_toast("✓ Enlace enviado. Revisa tu bandeja de entrada.", "success")
+        pass
+        #self.show_toast("✓ Enlace enviado. Revisa tu bandeja de entrada.", "success")
+        #self.after(1500, self.hide_toast())
 
 class HU002_Registro(BaseFrame):
     def __init__(self, parent, controller):
@@ -327,19 +343,25 @@ class HU002_Registro(BaseFrame):
         try:
             res = self.controller.facade.registrar(nombre, email, usuario, password)
             if res:
-                self.show_toast("✓ Cuenta creada con éxito en la base de datos.", "success")
+                #self.show_toast("✓ Cuenta creada con éxito en la base de datos.", "success")
                 for ent in self.inputs.values(): ent.delete(0, 'end')
                 for lbl in self.helps.values(): lbl.config(text="")
                 self.terms_var.set(False)
+                #self.after(1400, self.hide_toast())
                 self.controller.show_frame("HU001_Login")
             else:
-                self.show_toast("✗ No se pudo registrar la cuenta.", "error")
+                pass
+                #self.show_toast("✗ No se pudo registrar la cuenta.", "error")
+                #self.after(1400, self.hide_toast())
         except Exception as e:
-            self.show_toast(f"Error al registrar usuario: {e}", "error")
+            pass
+            #self.show_toast(f"Error al registrar usuario: {e}", "error")
+            #self.after(1400, self.hide_toast())
         #self.show_toast("✓ Cuenta creada. Se envió correo de confirmación.", "success")
         for ent in self.inputs.values(): ent.delete(0, 'end')
         for lbl in self.helps.values(): lbl.config(text="")
         self.terms_var.set(False)
+        #self.hide_toast()
 
 class HU009_ListarRepositorios(BaseFrame):
     def __init__(self, parent, controller):
@@ -374,7 +396,7 @@ class HU009_ListarRepositorios(BaseFrame):
             self.repos = self.controller.facade.listar_proyectos_usuario(user_id)
             total_commits = self.controller.facade.contar_commits_totales_usuario(user_id)
         except Exception as e:
-            self.show_toast(f"Error cargando repositorios: {e}", "error")
+            #self.show_toast(f"Error cargando repositorios: {e}", "error")
             self.repos = []
             total_commits = 0
 
@@ -382,6 +404,7 @@ class HU009_ListarRepositorios(BaseFrame):
         total_repos = len(self.repos)
         privados = sum(1 for r in self.repos if r.visibilidad.lower() == "privado")
         publicos = total_repos - privados
+        #self.hide_toast()
 
         stats_frame = ttk.Frame(content, style='App.TFrame')
         stats_frame.pack(fill="x", pady=(0, 20))
@@ -437,7 +460,7 @@ class HU009_ListarRepositorios(BaseFrame):
     def apply_filters(self):
         """Filtra la lista de repositorios según el término de búsqueda y la visibilidad."""
         search_text = self.search_var.get().strip().lower()
-        selected_vis = self.filter_vis_var.get()
+        selected_vis = self.filter_vis_var.get().replace("ú","u")
 
         self.filtered_repos = []
         for repo in self.repos:
@@ -520,6 +543,7 @@ class HU009_ListarRepositorios(BaseFrame):
             action_frame.pack(side="right")
             ttk.Button(action_frame, text="+ Commit", style='Secondary.TButton', command=lambda r=repo: self.ir_a_crear_commit(r)).pack(side="left", padx=2)
             ttk.Button(action_frame, text="Commits", style='Secondary.TButton', command=lambda r=repo: self.ir_a_historial(r)).pack(side="left", padx=2)
+            ttk.Button(action_frame, text="Diff", style='Secondary.TButton', command=lambda r=repo: self.ir_a_diff(r)).pack(side="left", padx=2)
             ttk.Button(action_frame, text="Ramas", style='Secondary.TButton', command=lambda r=repo: self.ir_a_ramas(r)).pack(side="left", padx=2)
             ttk.Button(action_frame, text="Eliminar", style='Danger.TButton', command=lambda r=repo: self.ir_a_eliminar_repo(r)).pack(side="left", padx=2)
 
@@ -612,6 +636,11 @@ class HU009_ListarRepositorios(BaseFrame):
         """Asigna el repositorio seleccionado al controlador y abre la vista de historial."""
         self.controller.set_proyecto_actual(repo)
         self.controller.show_frame("HU005_Historial")
+
+    def ir_a_diff(self, repo):
+        """Asigna el repositorio seleccionado al controlador y abre la vista de historial."""
+        self.controller.set_proyecto_actual(repo)
+        self.controller.show_frame("HU006_Diff")
 
     def ir_a_ramas(self, repo):
         """Asigna el repositorio seleccionado al controlador y abre la vista de ramas."""
@@ -726,14 +755,17 @@ class HU003_CrearRepo(BaseFrame):
                 user_id, nombre, descripcion, self.folder_selected, self.priv_var.get()
             )
             if nuevo:
-                self.show_toast(
-                    f"✓ Repositorio '{nombre}' creado con éxito.", "success"
-                )
+                #self.show_toast(
+                #    f"✓ Repositorio '{nombre}' creado con éxito.", "success"
+                #)
+                #self.after(1400, self.hide_toast())
                 self.after(1500, self.controller.show_frame("HU009_ListarRepositorios"))
                 #self.controller.show_frame("HU009_ListarRepositorios")
         except Exception as e:
-            self.show_toast(f"Error al crear repositorio: {e}", "error")
-
+            pass
+            #self.show_toast(f"Error al crear repositorio: {e}", "error")
+            #self.after(1400, self.hide_toast())
+            
 class HU004_Commit(BaseFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, controller)
