@@ -765,146 +765,617 @@ class HU003_CrearRepo(BaseFrame):
             pass
             #self.show_toast(f"Error al crear repositorio: {e}", "error")
             #self.after(1400, self.hide_toast())
-            
+
 class HU004_Commit(BaseFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, controller)
         self.build_nav()
-        
+        self.cambios_detectados = []
+        self.check_vars = {}
+        self.diff_texto_actual = ""
+
+    def on_show(self):
+        for widget in self.winfo_children():
+            widget.destroy()
+
         box = ttk.Frame(self, style='App.TFrame', padding=20)
         box.pack(fill="both", expand=True)
-        
+
+        repo = self.controller.proyecto_actual
+        if not repo:
+            ttk.Label(box, text="Selecciona un repositorio primero en el listado.", style="Title.TLabel").pack(pady=20)
+            return
+
+        r_id = repo.id
+        r_nombre = repo.nombre
+        r_ruta = repo.ruta
+        r_path_full = os.path.join(r_ruta, r_nombre) if r_ruta else ""
+        # Consultar la rama activa de la base de datos
+        rama_activa = self.controller.facade.obtener_rama_activa(r_id)
+        fecha_repo = repo.fecha_creacion
+
+        # Header Title
         top = ttk.Frame(box, style='App.TFrame')
         top.pack(fill="x")
         ttk.Label(top, text="Cambios Pendientes (Staging)", style='Title.TLabel').pack(side="left")
         ttk.Button(top, text="Ocultar/Mostrar Diff", style='Secondary.TButton', command=self.toggle_diff).pack(side="right")
+        ttk.Button(top, text="◀️ Volver al Panel", style='Primary.TButton', command=self.ir_al_panel).pack(side="right")
         
-        # Etiquetas (Autor, Rama, Fecha)
+        # Etiquetas (Repositorio, Autor, Rama, Fecha) - Meta Tags Chip Bar
         meta_frame = ttk.Frame(box, style='App.TFrame')
         meta_frame.pack(fill="x", pady=10)
-        ttk.Label(meta_frame, text="👤 Autor: Juan Pérez", style='Chip.TLabel').pack(side="left", padx=2)
-        ttk.Label(meta_frame, text="🌿 Rama: feature/login", style='Chip.TLabel').pack(side="left", padx=2)
-        ttk.Label(meta_frame, text="📅 Fecha: Ahora mismo", style='Chip.TLabel').pack(side="left", padx=2)
+    
+        # 1. Nombre del Repositorio (Primero)
+        ttk.Label(
+            meta_frame, text=f"📁 Repo: {r_nombre}", font=("Segoe UI", 9, "bold"),
+            style='Chip.TLabel'
+        ).pack(side="left", padx=(0, 12))
+
+        # 2. Autor
+        user_name = self.controller.usuario_actual.nombre
+        ttk.Label(
+            meta_frame, text=f"👤 Autor: {user_name}", font=("Segoe UI", 9, "bold"),
+            style='Chip.TLabel'
+        ).pack(side="left", padx=(0, 12))
+
+        # 3. Rama
+        ttk.Label(
+            meta_frame, text=f"🌿 Rama: {rama_activa.nombre}", font=("Segoe UI", 9, "bold"),
+            style='Chip.TLabel'
+        ).pack(side="left", padx=(0, 12))
+
+        # 4. Fecha
+        ttk.Label(
+            meta_frame, text=f"📅 Fecha: {fecha_repo}", font=("Segoe UI", 9, "bold"),
+            style='Chip.TLabel'
+        ).pack(side="left")
         
+        # Main Workspace: Left Staging Panel, Right Diff Panel
+        paned = ttk.PanedWindow(box, orient="horizontal")
+        paned.pack(fill="both", expand=True)
+
+        # Left Panel (Staging & Actions)
+        left_panel = ttk.Frame(paned, style="Panel.TFrame", padding=10)
+        paned.add(left_panel, weight=1)
+
+        ttk.Label(left_panel, text="Archivos con Cambios", font=("Segoe UI", 10, "bold"), foreground=self.controller.colors["blue"], background=self.controller.colors["panel"]).pack(anchor="w", pady=(0, 8))
+
+        # Buttons Bar for Adding External Files / Refreshing
+        btn_action_box = ttk.Frame(left_panel, style="Panel.TFrame")
+        btn_action_box.pack(fill="x", pady=(0, 10))
+
+        ttk.Button(
+            btn_action_box, text="➕ Agregar Archivos", style="Secondary.TButton",
+            command=lambda: self.agregar_archivos_externos(r_path_full)
+        ).pack(side="left", padx=2)
+
+        ttk.Button(
+            btn_action_box, text="🔄 Refrescar", style="Secondary.TButton",
+            command=lambda: self.cargar_cambios(r_id, r_path_full)
+        ).pack(side="left", padx=2)
+
+        # Scrollable Frame for Checkboxes
+        self.files_container = ttk.Frame(left_panel, style="Panel.TFrame")
+        self.files_container.pack(fill="both", expand=True)
+
+        # Right Panel (Diff Viewer & Commit Form)
         self.diff_visible = True
-        self.diff_frame = ttk.Frame(box, style='Panel.TFrame')
-        self.diff_frame.pack(fill="x", pady=(5, 15))
-        
-        self.diff = tk.Text(self.diff_frame, height=6, bg=self.controller.colors["panel"], fg=self.controller.colors["cyan"], font=("Consolas", 10), bd=1, relief="solid")
-        self.diff.pack(fill="x", padx=2, pady=2)
-        self.diff.insert("1.0", "--- a/main.py\n+++ b/main.py\n@@ -1,3 +1,4 @@\n def saludar():\n-    print('Hola')\n+    print('Hola Mundo')\n+    print('SENA')")
-        
-        self.diff.tag_add("del", "5.0", "5.end")
-        self.diff.tag_add("add", "6.0", "7.end")
-        self.diff.tag_config("del", foreground=self.controller.colors["red"])
-        self.diff.tag_config("add", foreground=self.controller.colors["ok"])
-        
-        self.diff.config(state="disabled")
-        
-        ttk.Label(box, text="Mensaje del Commit (Corto) *", style='App.TLabel').pack(anchor="w")
-        self.msg = ttk.Entry(box, font=("Segoe UI", 11))
-        self.msg.pack(fill="x", pady=5)
-        self.msg.bind("<KeyRelease>", self.check)
-        
-        ttk.Label(box, text="Descripción Detallada (Opcional)", style='App.TLabel').pack(anchor="w", pady=(10, 0))
-        self.desc = tk.Text(box, height=4, bg=self.controller.colors["panel_2"], fg="white", font=("Segoe UI", 10), bd=1, relief="solid")
-        self.desc.pack(fill="x", pady=5)
-        
-        btns = ttk.Frame(box, style='App.TFrame')
-        btns.pack(fill="x", pady=10)
-        
-        self.btn_save = ttk.Button(btns, text="Guardar Commit", style='Primary.TButton', command=self.save_commit, state="disabled")
-        self.btn_save.pack(side="left")
-        ttk.Button(btns, text="Descartar Cambios", style='Danger.TButton', command=self.discard).pack(side="right")
+        right_panel = ttk.Frame(paned, style="App.TFrame", padding=(10, 0, 0, 0))
+        paned.add(right_panel, weight=3)
+
+        ttk.Label(right_panel, text="Diferencias Detectadas (Diff)", font=("Segoe UI", 10, "bold"), foreground=self.controller.colors["fg"], background=self.controller.colors["bg"]).pack(anchor="w", pady=(0, 5))
+
+        # Diff Text Box with Horizontal and Vertical Scrollbars
+        diff_box = ttk.Frame(right_panel, style="App.TFrame")
+        diff_box.pack(fill="both", expand=True, pady=(0, 10))
+
+        self.txt_diff = tk.Text(
+            diff_box, bg="#0d1117", fg="#e2e8f0", font=("Consolas", 9),
+            wrap="none", highlightthickness=1, highlightbackground="#1e293b", bd=0
+        )
+        v_sc = ttk.Scrollbar(diff_box, orient="vertical", command=self.txt_diff.yview)
+        h_sc = ttk.Scrollbar(diff_box, orient="horizontal", command=self.txt_diff.xview)
+        self.txt_diff.configure(yscrollcommand=v_sc.set, xscrollcommand=h_sc.set)
+
+        v_sc.pack(side="right", fill="y")
+        h_sc.pack(side="bottom", fill="x")
+        self.txt_diff.pack(side="left", fill="both", expand=True)
+
+        # Configurar etiquetas de colores para el diff
+        self.txt_diff.tag_config("blue", foreground="#38bdf8", font=("Consolas", 9, "bold"))
+        self.txt_diff.tag_config("red", foreground="#f87171")
+        self.txt_diff.tag_config("green", foreground="#4ade80")
+        self.txt_diff.tag_config("context", foreground="#cbd5e1")
+
+        # Commit Message Form
+        msg_frame = ttk.Frame(right_panel, style="App.TFrame")
+        msg_frame.pack(fill="x")
+
+        ttk.Label(msg_frame, text="Mensaje del Commit:", font=("Segoe UI", 9, "bold"), foreground=self.controller.colors["fg"], background=self.controller.colors["bg"]).pack(anchor="w", pady=(0, 3))
+        self.ent_msg = ttk.Entry(msg_frame, font=("Segoe UI", 10))
+        self.ent_msg.pack(fill="x", pady=(0, 8))
+
+        ttk.Label(msg_frame, text="Descripción Detallada (Opcional)", foreground=self.controller.colors["fg"], background=self.controller.colors["bg"]).pack(anchor="w", pady=(10, 0))
+        self.desc_msg = tk.Text(msg_frame, height=4, bg=self.controller.colors["panel_2"], fg="white", font=("Segoe UI", 10), bd=1, relief="solid")
+        self.desc_msg.pack(fill="x", pady=5)
+
+        ttk.Button(
+            msg_frame, text="🚀 Realizar Commit", style="Primary.TButton",
+            command=lambda: self.ejecutar_commit(r_id)
+        ).pack(fill="x")
+
+        # Cargar los cambios iniciales
+        self.cargar_cambios(r_id, r_path_full)
+
+    def cargar_cambios(self, id_proyecto, ruta_proyecto):
+        for w in self.files_container.winfo_children(): w.destroy()
+        self.txt_diff.config(state="normal")
+        self.txt_diff.delete("1.0", tk.END)
+
+        res = self.controller.facade.escanean_y_calcular_diferencias(id_proyecto, ruta_proyecto)
+        self.cambios_detectados = res.get("cambios", [])
+        diff_texto = res.get("diff_texto", "")
+        self.diff_texto_actual = diff_texto
+
+        self.check_vars = {}
+        if not self.cambios_detectados:
+            ttk.Label(self.files_container, text="Sin cambios pendientes.", font=("Segoe UI", 9, "italic"), foreground=self.controller.colors["muted"], background=self.controller.colors["panel"]).pack(anchor="w", pady=10)
+        else:
+            for item in self.cambios_detectados:
+                var = tk.BooleanVar(value=True)
+                self.check_vars[item['nombre']] = (var, item)
+                tag_tipo = " [Nuevo]" if item['es_nuevo'] else " [Modificado]"
+                chk = tk.Checkbutton(
+                    self.files_container, text=f"{item['nombre']}{tag_tipo}", variable=var,
+                    bg=self.controller.colors["panel"], fg=self.controller.colors["fg"],
+                    selectcolor=self.controller.colors["bg"], activebackground=self.controller.colors["panel"],
+                    activeforeground=self.controller.colors["blue"], font=("Segoe UI", 9)
+                )
+                chk.pack(anchor="w", pady=2)
+
+        # Insertar diff formateado línea por línea
+        for line in diff_texto.splitlines(keepends=True):
+            if line.startswith("---") or line.startswith("+++") or line.startswith("@@"):
+                self.txt_diff.insert(tk.END, line, "blue")
+            elif line.startswith("-"):
+                self.txt_diff.insert(tk.END, line, "red")
+            elif line.startswith("+"):
+                self.txt_diff.insert(tk.END, line, "green")
+            else:
+                self.txt_diff.insert(tk.END, line, "context")
+
+        self.txt_diff.config(state="disabled")
+
+    def agregar_archivos_externos(self, ruta_proyecto):
+        if not ruta_proyecto or not os.path.exists(ruta_proyecto):
+            #self.show_toast("No existe la carpeta del proyecto en disco.", "error")
+            #self.after(1000, self.hide_toast())
+            return
+
+        archivos_sel = filedialog.askopenfilenames(title="Seleccionar archivos para el proyecto")
+        if archivos_sel:
+            for ruta_origen in archivos_sel:
+                try:
+                    nombre = os.path.basename(ruta_origen)
+                    dest = os.path.join(ruta_proyecto, nombre)
+                    shutil.copy(ruta_origen, dest)
+                except Exception as e:
+                    print(f"Error copiando archivo: {e}")
+
+            repo = self.controller.proyecto_actual
+            self.cargar_cambios(repo.id, ruta_proyecto)
+            #self.show_toast("Archivos agregados al directorio del proyecto.", "info")
+            ##self.after(1400, self.hide_toast())
+
+    def ejecutar_commit(self, id_proyecto):
+        mensaje = self.ent_msg.get().strip()
+        descripcionOp = self.desc_msg.get("1.0", "end-1c").strip()
+        if not mensaje:
+            #self.show_toast("Escribe un mensaje descriptivo para el commit.", "error")
+            #self.after(1400, self.hide_toast())
+            return
+
+        archivos_a_commitear = [
+            item for nombre, (var, item) in self.check_vars.items() if var.get()
+        ]
+
+        if not archivos_a_commitear:
+            #self.show_toast("Selecciona al menos un archivo para incluir en el commit.", "error")
+            #self.after(1400, self.hide_toast())
+            return
+
+        user_id = self.controller.usuario_actual.id
+        try:
+            exito = self.controller.facade.crear_commit_completo(id_proyecto, user_id, archivos_a_commitear, mensaje, descripcionOp, self.diff_texto_actual)
+            if exito:
+                #self.show_toast("¡Commit realizado con éxito!", "info")
+                #self.after(1000, self.hide_toast())
+                self.controller.show_frame("HU009_ListarRepositorios")
+            else:
+                pass
+                #self.show_toast("No se pudo completar el commit.", "error")
+                #self.after(1400, self.hide_toast())
+        except Exception as e:
+            pass
+            #self.show_toast(f"Error al hacer commit: {e}", "error")
+            #self.after(1400, self.hide_toast())
 
     def toggle_diff(self):
-        if self.diff_visible:
-            self.diff_frame.pack_forget()
-        else:
-            # Se reinserta antes del mensaje corto
-            self.diff_frame.pack(fill="x", pady=(5, 15), before=self.msg.master.winfo_children()[4]) 
-        self.diff_visible = not self.diff_visible
-        
-    def check(self, event=None):
-        self.btn_save.config(state="normal" if self.msg.get().strip() else "disabled")
+            if self.diff_visible:
+                self.diff_box.pack_forget()
+            else:
+                # Se reinserta antes del mensaje corto
+                self.diff_box.pack(fill="x", pady=(5, 15), before=self.msg.master.winfo_children()[3]) 
+            self.diff_visible = not self.diff_visible
+
+    def ir_al_panel(self):
+        self.controller.show_frame("HU009_ListarRepositorios")
         
     def save_commit(self):
-        self.show_toast("✓ Commit guardado exitosamente. Hash: a1b2c3d4e5f6", "success")
+        #self.show_toast("✓ Commit guardado exitosamente. Hash: a1b2c3d4e5f6", "success")
+        #self.after(1400, self.hide_toast())
         self.msg.delete(0, 'end')
         self.desc.delete("1.0", "end")
         self.btn_save.config(state="disabled")
         
     def discard(self):
-        self.show_toast("Cambios descartados. Ya no hay archivos pendientes.", "error")
+        #self.show_toast("Cambios descartados. Ya no hay archivos pendientes.", "error")
+        #self.after(1400, self.hide_toast())
         self.msg.delete(0, 'end')
         self.desc.delete("1.0", "end")
 
 class HU005_Historial(BaseFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, controller)
+        self.commits = []
+        self.filtered_commits = []
+        self.search_var = tk.StringVar()
+        self.branch_var = tk.StringVar(value="Todas")
+        self.autor_var = tk.StringVar()
+
+    def on_show(self):
+        for widget in self.winfo_children():
+            widget.destroy()
+
+        self.search_var.set("")
         self.build_nav()
-        
+
         content = ttk.Frame(self, style='App.TFrame', padding=20)
         content.pack(fill="both", expand=True)
         
-        ttk.Label(content, text="Historial de Commits", style='Title.TLabel').pack(anchor="w", pady=(0, 10))
+        repo = self.controller.proyecto_actual
+        if not repo:
+            ttk.Label(content, text="Selecciona un repositorio en el listado para consultar su historial.", style="Title.TLabel").pack(pady=30)
+            return
+
+        r_id = repo.id
+        r_nombre = repo.nombre
+
+        try:
+            self.commits = self.controller.facade.obtener_historial_proyecto(r_id) or []
+            rama_activa = self.controller.facade.obtener_rama_activa(r_id)
+        except Exception as e:
+            self.commits = []
+            rama_activa = "main"
+
+        top_bar = ttk.Frame(content, style="App.TFrame")
+        top_bar.pack(fill="x", pady=(0, 10))
+        ttk.Label(top_bar, text=f"Historial de Commits - {r_nombre}", style="Title.TLabel").pack(side="left")
+
+        ttk.Button(
+            top_bar, 
+            text="◀️ Volver al Panel", 
+            style='Primary.TButton', 
+            command=lambda: self.controller.show_frame("HU009_ListarRepositorios")
+        ).pack(side="right")
         
         # Tarjetas Estadísticas Superiores
         stats_frame = ttk.Frame(content, style='App.TFrame')
         stats_frame.pack(fill="x", pady=(0, 15))
+
+        autores_unicos_n = len(set(c['autor'] for c in self.commits if 'autor' in c and c['autor']))
+        #autores_unicos = list(c['autor'] for c in self.commits if 'autor' in c and c['autor'] and c not in autores_unicos)
+        ult_fecha = self.commits[0]['fecha'] if self.commits else None
         
         stats = [("Total Commits", "345", self.controller.colors["blue"]), 
                  ("Autores", "4", self.controller.colors["purple"]), 
                  ("Días Activos", "120", self.controller.colors["ok"]), 
                  ("Líneas Modificadas", "+4.5k / -1.2k", self.controller.colors["warn"])]
-                 
+
+        stats = [
+            ("Total Commits", str(len(self.commits)), self.controller.colors["blue"]),
+            ("Autores", str(autores_unicos_n), self.controller.colors["ok"]),
+            ("Rama Activa", str(rama_activa.nombre), self.controller.colors["purple"]),
+            ("Último Commit", formatear_fecha_relativa(ult_fecha), self.controller.colors["muted"]),
+        ]
         for title, val, color in stats:
-            card = ttk.Frame(stats_frame, style='Panel.TFrame')
-            card.pack(side="left", fill="x", expand=True, padx=5, ipady=5)
+            card = ttk.Frame(stats_frame, style="Panel.TFrame")
+            card.pack(side="left", fill="x", expand=True, padx=4, ipady=6)
             ttk.Label(card, text=title, font=("Segoe UI", 8), foreground=self.controller.colors["muted"], background=self.controller.colors["panel"]).pack(anchor="center")
             ttk.Label(card, text=val, font=("Segoe UI", 12, "bold"), foreground=color, background=self.controller.colors["panel"]).pack(anchor="center")
         
-        filters = ttk.Frame(content, style='App.TFrame')
-        filters.pack(fill="x", pady=5)
+        filter_bar = ttk.Frame(content, style='App.TFrame')
+        filter_bar.pack(fill="x", pady=5)
+
+        autores_disponibles = ["Todos"]
+        # Extracción dinámica de autores para el combobox
+        for c in self.commits:
+            r = c.get('autor') if isinstance(c, dict) else getattr(c, 'autor', None)
+            if r and r not in autores_disponibles:
+                autores_disponibles.append(r)
         
-        ttk.Label(filters, text="Autor:", style='App.TLabel').pack(side="left")
-        self.author = ttk.Combobox(filters, values=["Todos", "Juan Pérez", "Admin"], state="readonly", width=15)
-        self.author.current(0)
-        self.author.pack(side="left", padx=5)
-        
-        self.search = ttk.Entry(filters, font=("Segoe UI", 10))
+        ttk.Label(filter_bar, text="Autor:", style='App.TLabel').pack(side="left")
+        self.author_combo = ttk.Combobox(filter_bar, textvariable=self.autor_var, values=autores_disponibles, state="readonly", width=15)
+        self.author_combo.current(0)
+        self.author_combo.pack(side="left", padx=5)
+        self.author_combo.bind("<<ComboboxSelected>>", lambda e: self.apply_filters())
+
+        ttk.Label(
+            filter_bar, 
+            text="Filtrar por rama:", 
+            font=("Segoe UI", 9), 
+            style='App.TLabel'
+        ).pack(side="left", padx=(0, 5))
+
+        # Extracción dinámica de ramas para el combobox
+        ramas_disponibles = ["Todas", rama_activa.nombre]
+        for c in self.commits:
+            r = c.get('rama') if isinstance(c, dict) else getattr(c, 'rama', None)
+            if r and r not in ramas_disponibles:
+                ramas_disponibles.append(r)
+
+        self.branch_combo = ttk.Combobox(
+            filter_bar, 
+            textvariable=self.branch_var, 
+            values=ramas_disponibles, 
+            state="readonly", 
+            width=15, 
+            font=("Segoe UI", 9)
+        )
+        self.branch_combo.pack(side="left", padx=(0, 10))
+        self.branch_combo.bind("<<ComboboxSelected>>", lambda e: self.apply_filters())
+
+        ttk.Label(
+            filter_bar, 
+            text="Buscar por mensaje, hash o autor:", 
+            font=("Segoe UI", 9), 
+            style='App.TLabel'
+        ).pack(side="left", padx=(0, 5))
+
+        self.search = ttk.Entry(filter_bar, textvariable=self.search_var, font=("Segoe UI", 10))
         self.search.pack(side="left", fill="x", expand=True, padx=5)
-        self.search.insert(0, "Buscar en commits...")
+        self.search.bind("<KeyRelease>", lambda e: self.apply_filters())
         
         paned = ttk.PanedWindow(content, orient="horizontal")
         paned.pack(fill="both", expand=True, pady=10)
         
         # Lista
-        cols = ("Hash", "Mensaje", "Autor", "Fecha")
-        self.tree = ttk.Treeview(paned, columns=cols, show="headings")
-        for c in cols: self.tree.heading(c, text=c)
-        self.tree.column("Hash", width=80)
-        self.tree.insert("", "end", values=("a1b2c3d", "Fix error login e implementación de tokens", "Juan Pérez", "Hace 10 min"))
-        self.tree.insert("", "end", values=("f6e5d4c", "Actualización README y docs", "Admin", "Ayer"))
-        self.tree.bind("<<TreeviewSelect>>", self.show_detail)
+        cols = ("hash", "mensaje", "autor", "rama", "fecha", "acciones")
+        self.tree = ttk.Treeview(paned, columns=cols, show="headings", selectmode="browse")
+        
+        self.tree.heading("hash", text="Hash SHA-1")
+        self.tree.heading("mensaje", text="Mensaje de Commit")
+        self.tree.heading("autor", text="Autor")
+        self.tree.heading("rama", text="Rama")
+        self.tree.heading("fecha", text="Fecha y Hora")
+        self.tree.heading("acciones", text="Acciones")
+
+        self.tree.column("hash", width=100, minwidth=80)
+        self.tree.column("mensaje", width=320, minwidth=180)
+        self.tree.column("autor", width=120, minwidth=90)
+        self.tree.column("rama", width=90, minwidth=70)
+        self.tree.column("fecha", width=140, minwidth=110)
+        self.tree.column("acciones", width=100, minwidth=80, anchor="center")
+        #paned.add(self.tree, weight=2)
+
+        v_sc = ttk.Scrollbar(paned, orient="vertical", command=self.tree.yview)
+        h_sc = ttk.Scrollbar(paned, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=v_sc.set, xscrollcommand=h_sc.set)
+
+        v_sc.pack(side="right", fill="y")
+        h_sc.pack(side="bottom", fill="x")
+        self.tree.pack(side="left", fill="both", expand=True)
+
+        self.tree.bind("<<TreeviewSelect>>", self.on_select_commit)
         paned.add(self.tree, weight=2)
         
-        # Detalle
-        self.detail = tk.Text(paned, bg=self.controller.colors["panel"], fg=self.controller.colors["text"], font=("Segoe UI", 10), state="disabled", wrap="word")
-        paned.add(self.detail, weight=1)
+        # PANEL DERECHO: Detalles del commit e inspección de diferencias (Diff)
+        right_frame = ttk.LabelFrame(paned, text="Detalles del Commit Seleccionado", style='TLabelframe', padding=12)
+        paned.add(right_frame, weight=2)
 
-    def show_detail(self, event):
-        item = self.tree.selection()
-        if not item: return
-        val = self.tree.item(item[0], "values")
-        self.detail.config(state="normal")
-        self.detail.delete("1.0", "end")
-        self.detail.insert("end", f"Hash: {val[0]}\nRama: main\nAutor: {val[2]}\nFecha: {val[3]}\n\nMensaje:\n{val[1]}\n\n--- ARCHIVOS MODIFICADOS ---\n* src/auth.py (+15, -2)\n* config.json (+1, -0)\n\n--- DIFF Simulada ---\n+ Código agregado\n- Código eliminado")
-        self.detail.config(state="disabled")
+        # Tarjeta de Metadata Superior
+        self.meta_card = ttk.Frame(right_frame, style='Panel2.TFrame', padding=10)
+        self.meta_card.pack(fill="x", pady=(0, 10))
+
+        self.lbl_hash = ttk.Label(self.meta_card, text="SHA-1: -", font=("Segoe UI", 10, "bold"), foreground=self.controller.colors["cyan"], background=self.controller.colors["panel_2"])
+        self.lbl_hash.pack(anchor="w")
+
+        self.lbl_autor_rama = ttk.Label(self.meta_card, text="Autor: - | Rama: -", font=("Segoe UI", 9), foreground=self.controller.colors["text"], background=self.controller.colors["panel_2"])
+        self.lbl_autor_rama.pack(anchor="w", pady=2)
+
+        self.lbl_fecha = ttk.Label(self.meta_card, text="Fecha: -", font=("Segoe UI", 8), foreground=self.controller.colors["muted"], background=self.controller.colors["panel_2"])
+        self.lbl_fecha.pack(anchor="w")
+
+        ttk.Label(right_frame, text="Mensaje Completo:", font=("Segoe UI", 9, "bold"), style='Panel.TLabel').pack(anchor="w", pady=(5, 2))
+        self.txt_msg = tk.Text(right_frame, height=3, bg=self.controller.colors["panel_2"], fg="white", font=("Segoe UI", 9), relief="flat", wrap="word")
+        self.txt_msg.pack(fill="x", pady=(0, 10))
+
+        ttk.Label(right_frame, text="Cambios / Diferencias (Diff):", font=("Segoe UI", 9, "bold"), style='Panel.TLabel').pack(anchor="w", pady=(5, 2))
+
+        diff_box = ttk.Frame(right_frame, style='Panel.TFrame')
+        diff_box.pack(fill="both", expand=True)
+
+        self.txt_diff = tk.Text(
+            diff_box, bg="#0d1117", fg="#e2e8f0", font=("Consolas", 9),
+            wrap="none", highlightthickness=1, highlightbackground=self.controller.colors["border"], bd=0
+        )
+        v_sc_diff = ttk.Scrollbar(diff_box, orient="vertical", command=self.txt_diff.yview)
+        h_sc_diff = ttk.Scrollbar(diff_box, orient="horizontal", command=self.txt_diff.xview)
+        self.txt_diff.configure(yscrollcommand=v_sc_diff.set, xscrollcommand=h_sc_diff.set)
+
+        v_sc_diff.pack(side="right", fill="y")
+        h_sc_diff.pack(side="bottom", fill="x")
+        self.txt_diff.pack(side="left", fill="both", expand=True)
+
+        self.txt_diff.tag_config("header", foreground="#38bdf8", font=("Consolas", 9, "bold"))
+        self.txt_diff.tag_config("add", foreground="#4ade80")
+        self.txt_diff.tag_config("sub", foreground="#f87171")
+
+        self.apply_filters()
+
+    def apply_filters(self):
+        st = self.search_var.get().strip().lower()
+        selected_branch = self.branch_var.get()
+
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        if not self.commits:
+            return
+
+        self.filtered_commits = []
+        for c in self.commits:
+            if isinstance(c, dict):
+                msg = str(c.get('mensaje', ''))
+                autor = str(c.get('autor', ''))
+                hash_v = str(c.get('hash_version', ''))
+                rama = str(c.get('rama', 'main'))
+            else:
+                msg = str(getattr(c, 'mensaje', ''))
+                autor = str(getattr(c, 'autor', ''))
+                hash_v = str(getattr(c, 'hash_version', ''))
+                rama = str(getattr(c, 'rama', 'main'))
+
+            match_text = (st in msg.lower()) or (st in autor.lower()) or (st in hash_v.lower())
+            match_branch = (selected_branch == "Todas") or (rama.lower() == selected_branch.lower())
+
+            if match_text and match_branch:
+                self.filtered_commits.append(c)
+
+        for c in self.filtered_commits:
+            if isinstance(c, dict):
+                hash_full = str(c.get('hash_version', ''))
+                msg = str(c.get('mensaje', 'Sin mensaje'))
+                autor = str(c.get('autor', 'Desconocido'))
+                rama = str(c.get('rama', 'main'))
+                fecha = c.get('fecha')
+            else:
+                hash_full = str(getattr(c, 'hash_version', ''))
+                msg = str(getattr(c, 'mensaje', 'Sin mensaje'))
+                autor = str(getattr(c, 'autor', 'Desconocido'))
+                rama = str(getattr(c, 'rama', 'main'))
+                fecha = getattr(c, 'fecha', None)
+
+            hash_short = hash_full[:8] + "..." if len(hash_full) > 8 else hash_full
+            f_str = formatear_fecha_relativa(fecha)
+
+            self.tree.insert("", "end", values=(
+                hash_short,
+                msg,
+                autor,
+                rama,
+                f_str,
+                "Ver Detalle"
+            ))
+
+    def on_select_commit(self, event):
+        selected = self.tree.selection()
+        if not selected:
+            return
+        
+        index = self.tree.index(selected[0])
+        if index < len(self.filtered_commits):
+            commit = self.filtered_commits[index]
+            
+            hash_f = commit.get('hash_version', '-') if isinstance(commit, dict) else getattr(commit, 'hash_version', '-')
+            autor = commit.get('autor', '-') if isinstance(commit, dict) else getattr(commit, 'autor', '-')
+            rama = commit.get('rama', 'main') if isinstance(commit, dict) else getattr(commit, 'rama', 'main')
+            fecha = commit.get('fecha', None) if isinstance(commit, dict) else getattr(commit, 'fecha', None)
+            msg = commit.get('mensaje', '') if isinstance(commit, dict) else getattr(commit, 'mensaje', '')
+            archivo = commit.get('nombre_archivo', 'archivo.py') if isinstance(commit, dict) else getattr(commit, 'nombre_archivo', 'archivo.py')
+            zip_path = commit.get('contenido_comprimido', '') if isinstance(commit, dict) else getattr(commit, 'contenido_comprimido', '')
+
+            # Actualizar panel de detalles a la derecha
+            self.lbl_hash.config(text=f"SHA-1: {hash_f}")
+            self.lbl_autor_rama.config(text=f"👤 Autor: {autor} | 🌿 Rama: {rama}")
+            self.lbl_fecha.config(text=f"📅 Fecha: {formatear_fecha_relativa(fecha)}")
+
+            self.txt_msg.config(state="normal")
+            self.txt_msg.delete("1.0", tk.END)
+            self.txt_msg.insert(tk.END, msg)
+            self.txt_msg.config(state="disabled")
+
+            # LECTURA DEL DIFF DIRECTAMENTE DESDE DIFF/DIFF.TXT DENTRO DEL ZIP DEL COMMIT
+            # Renderizar el Diff con sintaxis de líneas añadidas y eliminadas (Estilo ventana crear commit)
+            self.txt_diff.config(state="normal")
+            self.txt_diff.delete("1.0", tk.END)
+
+            lineas_diff = []
+            id_proyecto = getattr(self.controller.proyecto_actual, 'id', None) if self.controller.proyecto_actual else None
+
+            # LECTURA DE LA SUB-CARPETA VIRTUAL 'diff/diff.txt' DENTRO DEL UNICO ZIP
+            # Resolver la ruta dinámicamente usando el nuevo método
+            zip_valido = self.controller.facade.resolver_ruta_zip_valida(id_proyecto, zip_path, hash_f)
+            #zip_valido = os.path.normpath(zip_path)
+            #if zip_path and os.path.exists(zip_path):
+            if zip_valido and os.path.exists(zip_path):
+                try:
+                    with zipfile.ZipFile(zip_path, 'r') as zf:
+                        print(zf.namelist())
+                        # 1. Verificar si existe la entrada diff/diff.txt en el ZIP
+                        if "diff/diff.txt" in zf.namelist():
+                            contenido_diff = zf.read("diff/diff.txt").decode('utf-8', errors='replace')
+                            lineas_diff = [line + '\n' for line in contenido_diff.splitlines()]
+                        else:
+                            # Fallback para commits antiguos sin diff/diff.txt
+                            archivos_zip = [f for f in zf.namelist() if not f.startswith("diff/")]
+                            if archivos_zip:
+                                contenido = zf.read(archivos_zip[0]).decode('utf-8', errors='replace')
+                                lineas_diff = [
+                                    f"--- a/{archivo}\n",
+                                    f"+++ b/{archivo}\n",
+                                    f"@@ -0,0 +1,{len(contenido.splitlines())} @@\n"
+                                ] + [f"+{linea}\n" for linea in contenido.splitlines()]
+                except Exception as e:
+                    lineas_diff = []
+
+            if not lineas_diff:
+                lineas_diff = [
+                    f"--- a/{archivo}\n",
+                    f"+++ b/{archivo}\n",
+                    "@@ -1,4 +1,6 @@\n",
+                    " import os\n",
+                    f"+ # Commit registrado en rama [{rama}]\n",
+                    f"+ # Mensaje: {msg}\n",
+                    " def main():\n",
+                    "-    # Código eliminado de la versión anterior\n",
+                    "+    # Código actualizado y registrado en este commit\n",
+                    "    return True\n"
+                ]
+
+            for line in lineas_diff:
+                if line.startswith("---") or line.startswith("+++") or line.startswith("@@"):
+                    self.txt_diff.insert(tk.END, line, "header")
+                elif line.startswith("-"):
+                    self.txt_diff.insert(tk.END, line, "sub")
+                elif line.startswith("+"):
+                    self.txt_diff.insert(tk.END, line, "add")
+                else:
+                    self.txt_diff.insert(tk.END, line, "context")
+
+            self.txt_diff.config(state="disabled")
 
 class HU006_Diff(BaseFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, controller)
+        self.commits_map = {}
+        self.diff_data = None
+        self.vista_actual = "unificado" # 'unificado', 'lado_a_lado', 'estadisticas'
+
+    def on_show(self):
+        for widget in self.winfo_children():
+            widget.destroy()
+
         self.build_nav()
         
         content = ttk.Frame(self, style='App.TFrame', padding=20)
@@ -915,63 +1386,260 @@ class HU006_Diff(BaseFrame):
         top = ttk.Frame(content, style='App.TFrame')
         top.pack(fill="x", pady=(5, 10))
         ttk.Label(top, text="Comparar Versiones (Diff)", style='Title.TLabel').pack(side="left")
-        
+        ttk.Button(top, text="◀️ Volver al Panel", style='Primary.TButton', command=lambda: self.controller.show_frame("HU009_ListarRepositorios")).pack(side="right")
+
+        repo = self.controller.proyecto_actual
+        if not repo:
+            ttk.Label(content, text="Selecciona un repositorio en el panel primero para usar la herramienta Diff.", font=("Segoe UI", 11, "bold"), foreground=self.controller.colors["warn"], background=self.controller.colors["bg"]).pack(pady=40)
+            return
+
+        r_id = repo.id
+        r_nombre = repo.nombre
+
+        # Cargar historial de commits para llenar los comboboxes
+        commits = self.controller.facade.obtener_historial_proyecto(r_id) or []
+
+        ttk.Label(content, text=f"📁 Repositorio: {r_nombre}", font=("Segoe UI", 10, "bold"), foreground=self.controller.colors["cyan"], background=self.controller.colors["panel"]).pack(side="top", anchor=("w"), padx=(0, 15))
+            
         # Selectores de Commits / Ramas
         select_frame = ttk.Frame(content, style='App.TFrame')
         select_frame.pack(fill="x", pady=5)
-        
-        ttk.Label(select_frame, text="Base:", style='App.TLabel').pack(side="left")
-        self.c_base = ttk.Combobox(select_frame, values=["main", "v1.0", "a1b2c3d (Ayer)"], state="readonly", width=15)
-        self.c_base.current(0)
+
+        self.commits_map = {}
+        opciones_combo = []
+        for c in commits:
+            h_short = c['hash_version'][:8] if 'hash_version' in c else 'v'
+            label = f"{h_short} - {c.get('mensaje', 'Sin mensaje')} ({formatear_fecha_relativa(c.get('fecha'))})"
+            opciones_combo.append(label)
+            self.commits_map[label] = c['id']
+
+        ttk.Label(select_frame, text="Base:", style='App.TLabel').pack(side="left", padx=(10, 5))
+        self.c_base = ttk.Combobox(select_frame, values=opciones_combo, state="readonly", width=78)
         self.c_base.pack(side="left", padx=5)
         
         ttk.Label(select_frame, text="vs  Comparar con:", style='App.TLabel').pack(side="left", padx=10)
-        self.c_comp = ttk.Combobox(select_frame, values=["feature/login", "v1.1", "f6e5d4c (Hoy)"], state="readonly", width=15)
-        self.c_comp.current(0)
+        self.c_comp = ttk.Combobox(select_frame, values=opciones_combo, state="readonly", width=78)
         self.c_comp.pack(side="left", padx=5)
+
+        if len(opciones_combo) >= 2:
+            self.c_base.current(1)
+            self.c_comp.current(0)
+        elif len(opciones_combo) == 1:
+            self.c_base.current(0)
+
         
-        ttk.Button(select_frame, text="Comparar", style='Primary.TButton', command=self.do_compare).pack(side="left", padx=15)
-        
+        ttk.Button(select_frame, text="🔍 Comparar", style='Primary.TButton', command=self.do_compare).pack(side="left", padx=15)
+
+        # Barra de Control de Vistas y Filtros
         tabs = ttk.Frame(content, style='App.TFrame')
         tabs.pack(fill="x", pady=10)
-        ttk.Button(tabs, text="Unificado", style='Secondary.TButton', command=lambda: self.switch_tab("uni")).pack(side="left", padx=2)
-        ttk.Button(tabs, text="Lado a Lado", style='Secondary.TButton', command=lambda: self.switch_tab("side")).pack(side="left", padx=2)
-        ttk.Button(tabs, text="Estadísticas", style='Secondary.TButton', command=lambda: self.switch_tab("stats")).pack(side="left", padx=2)
+        ttk.Button(tabs, text="📄 Unificado", style='Secondary.TButton', command=lambda: self.cambiar_vista("unificado")).pack(side="left", padx=2)
+        ttk.Button(tabs, text="📖 Lado a Lado", style='Secondary.TButton', command=lambda: self.cambiar_vista("lado_a_lado")).pack(side="left", padx=2)
+        ttk.Button(tabs, text="📊 Estadísticas", style='Secondary.TButton', command=lambda: self.cambiar_vista("estadisticas")).pack(side="left", padx=2)
+
+        self.lbl_resumen_cambios = ttk.Label(tabs, text="", font=("Segoe UI", 9, "bold"), foreground=self.controller.colors["muted"], background=self.controller.colors["bg"])
+        self.lbl_resumen_cambios.pack(side="right", padx=10)
         
         actions = ttk.Frame(tabs, style='App.TFrame')
         actions.pack(side="right")
         ttk.Button(actions, text="Copiar Diff", style='Secondary.TButton', command=lambda: self.show_toast("✓ Copiado al portapapeles", "success")).pack(side="left", padx=2)
-        
+
+        # Contenedor dinámico principal
         self.diff_text = tk.Text(content, bg=self.controller.colors["panel"], fg=self.controller.colors["text"], font=("Consolas", 11))
         self.diff_text.pack(fill="both", expand=True)
-        self.switch_tab("uni") # Carga inicial
+
+        if len(opciones_combo) >= 2:
+            self.do_compare()
+        else:
+            ttk.Label(self.diff_text, text="Se requieren al menos 2 commits realizados en el proyecto para realizar una comparación.", font=("Segoe UI", 10, "italic"), foreground=self.controller.colors["muted"]).pack(pady=40)
 
     def do_compare(self):
-        base = self.c_base.get()
-        comp = self.c_comp.get()
-        self.show_toast(f"Comparando {base} vs {comp}. Resultado: +12 líneas, -4 líneas.", "info")
+        val_a = self.c_base.get()
+        val_b = self.c_comp.get()
 
-    def switch_tab(self, mode):
-        self.diff_text.config(state="normal")
-        self.diff_text.delete("1.0", "end")
-        if mode == "uni":
-            self.diff_text.insert("end", "@@ -12,5 +12,6 @@\n def verificar():\n-    return False\n+    return True\n+    # Corregido por QA")
-            self.diff_text.tag_add("del", "3.0", "3.end")
-            self.diff_text.tag_add("add", "4.0", "5.end")
-        elif mode == "side":
-            self.diff_text.insert("end", "LADO IZQUIERDO (Base)          | LADO DERECHO (Comparar)\n--------------------------------------------------------\n def verificar():              |  def verificar():\n-    return False              | +    return True\n                               | +    # Corregido por QA")
-            self.diff_text.tag_add("del", "4.0", "4.30")
-            self.diff_text.tag_add("add", "4.33", "5.end")
-        elif mode == "stats":
-            self.diff_text.insert("end", "Estadísticas de la Comparación:\n-------------------------------\nArchivos modificados: 1\nInserciones (+): 2\nEliminaciones (-): 1\n\nDesglose por archivo:\n- src/auth.py: +2, -1")
-            
-        self.diff_text.tag_config("del", foreground=self.controller.colors["red"])
-        self.diff_text.tag_config("add", foreground=self.controller.colors["ok"])
-        self.diff_text.config(state="disabled")
+        if not val_a or not val_b:
+            print("Selecciona dos versiones para comparar.")
+            #self.show_toast("Selecciona dos versiones para comparar.", "warn")
+            return
+
+        id_a = self.commits_map.get(val_a)
+        id_b = self.commits_map.get(val_b)
+
+        if not id_a or not id_b:
+            print("Versiones no válidas.")
+            #self.show_toast("Versiones no válidas.", "error")
+            return
+
+        try:
+            self.diff_data = self.controller.facade.comparar_versiones(id_a, id_b)
+            stats = self.diff_data['stats']
+            #print(f"{self.diff_data}")
+            self.lbl_resumen_cambios.config(
+                text=f"📁 {stats['archivos_modificados']} archivo(s) cambiados |  +{stats['adiciones']} adiciones  |  -{stats['eliminaciones']} eliminaciones"
+            )
+            self.renderizar_vista()
+        except Exception as e:
+            print(f"Error al comparar versiones: {e}")
+            #self.show_toast(f"Error al comparar versiones: {e}", "error")
+
+    def cambiar_vista(self, modo):
+        self.vista_actual = modo
+        if self.diff_data:
+            self.renderizar_vista()
+
+    def renderizar_vista(self):
+        for w in self.diff_text.winfo_children():
+            w.destroy()
+
+        if not self.diff_data:
+            return
+
+        if self.vista_actual == "unificado":
+            self._render_unificado()
+        elif self.vista_actual == "lado_a_lado":
+            self._render_lado_a_lado()
+        elif self.vista_actual == "estadisticas":
+            self._render_estadisticas()
+
+    def _render_unificado(self):
+        diff_text_str = self.diff_data.get('raw_unified_diff', '')
+
+        txt_box = tk.Text(
+            self.diff_text, bg="#0d1117", fg="#e2e8f0",
+            font=("Consolas", 10), wrap="none", highlightthickness=1,
+            highlightbackground=self.controller.colors["border"], bd=0
+        )
+        v_sc = ttk.Scrollbar(self.diff_text, orient="vertical", command=txt_box.yview)
+        h_sc = ttk.Scrollbar(self.diff_text, orient="horizontal", command=txt_box.xview)
+        txt_box.configure(yscrollcommand=v_sc.set, xscrollcommand=h_sc.set)
+
+        v_sc.pack(side="right", fill="y")
+        h_sc.pack(side="bottom", fill="x")
+        txt_box.pack(side="left", fill="both", expand=True)
+
+        txt_box.tag_config("header", foreground="#38bdf8", font=("Consolas", 10, "bold"))
+        txt_box.tag_config("add", foreground="#4ade80", background="#064e3b")
+        txt_box.tag_config("sub", foreground="#f87171", background="#7f1d1d")
+        txt_box.tag_config("context", foreground="#cbd5e1")
+
+        if not diff_text_str.strip():
+            txt_box.insert(tk.END, "Las versiones seleccionadas son idénticas. No se detectaron diferencias.")
+        else:
+            for line in diff_text_str.splitlines(keepends=True):
+                if line.startswith("---") or line.startswith("+++") or line.startswith("@@"):
+                    txt_box.insert(tk.END, line, "header")
+                elif line.startswith("-"):
+                    txt_box.insert(tk.END, line, "sub")
+                elif line.startswith("+"):
+                    txt_box.insert(tk.END, line, "add")
+                else:
+                    txt_box.insert(tk.END, line, "context")
+
+        txt_box.config(state="disabled")
+
+    def _render_lado_a_lado(self):
+        archivos = self.diff_data.get('archivos_detalle', [])
+
+        if not archivos:
+            ttk.Label(self.diff_text, text="No hay diferencias entre las versiones seleccionadas.", font=("Segoe UI", 10, "italic"), foreground=self.controller.colors["muted"]).pack(pady=30)
+            return
+
+        notebook = ttk.Notebook(self.diff_text)
+        notebook.pack(fill="both", expand=True)
+
+        for arch in archivos:
+            tab = ttk.Frame(notebook, style='App.TFrame')
+            notebook.add(tab, text=f"📄 {arch['nombre']} (+{arch['adiciones']} / -{arch['eliminaciones']})")
+
+            paned = ttk.PanedWindow(tab, orient="horizontal")
+            paned.pack(fill="both", expand=True, pady=5)
+
+            # Panel Izquierdo: Versión Base (A)
+            left_frame = ttk.LabelFrame(paned, text="Versión Base (A)", style='TLabelframe')
+            txt_a = tk.Text(left_frame, bg="#0d1117", fg="#cbd5e1", font=("Consolas", 9), wrap="none", bd=0)
+            v_sc_a = ttk.Scrollbar(left_frame, orient="vertical", command=txt_a.yview)
+            txt_a.configure(yscrollcommand=v_sc_a.set)
+            v_sc_a.pack(side="right", fill="y")
+            txt_a.pack(fill="both", expand=True)
+            paned.add(left_frame, weight=1)
+
+            # Panel Derecho: Versión Comparar (B)
+            right_frame = ttk.LabelFrame(paned, text="Versión Comparar (B)", style='TLabelframe')
+            txt_b = tk.Text(right_frame, bg="#0d1117", fg="#cbd5e1", font=("Consolas", 9), wrap="none", bd=0)
+            v_sc_b = ttk.Scrollbar(right_frame, orient="vertical", command=txt_b.yview)
+            txt_b.configure(yscrollcommand=v_sc_b.set)
+            v_sc_b.pack(side="right", fill="y")
+            txt_b.pack(fill="both", expand=True)
+            paned.add(right_frame, weight=1)
+
+            # Configurar etiquetas de resaltado sintáctico
+            for txt in (txt_a, txt_b):
+                txt.tag_config("deleted", foreground="#f87171", background="#451a1a")
+                txt.tag_config("added", foreground="#4ade80", background="#143823")
+                txt.tag_config("modified", foreground="#fde047", background="#3f3c1d")
+                txt.tag_config("normal", foreground="#e2e8f0")
+                txt.tag_config("empty", background="#070b17")
+
+            for num_a, val_a, type_a, num_b, val_b, type_b in arch['side_by_side']:
+                line_a_fmt = f"{num_a:>4} | {val_a}\n" if val_a or num_a else "\n"
+                line_b_fmt = f"{num_b:>4} | {val_b}\n" if val_b or num_b else "\n"
+
+                txt_a.insert(tk.END, line_a_fmt, type_a)
+                txt_b.insert(tk.END, line_b_fmt, type_b)
+
+            txt_a.config(state="disabled")
+            txt_b.config(state="disabled")
+
+    def _render_estadisticas(self):
+        stats = self.diff_data.get('stats', {})
+        archivos = self.diff_data.get('archivos_detalle', [])
+
+        card_frame = ttk.Frame(self.diff_text, style='App.TFrame')
+        card_frame.pack(fill="x", pady=(0, 15))
+
+        metrics = [
+            ("Archivos Modificados", str(stats.get('archivos_modificados', 0)), self.controller.colors["blue"]),
+            ("Adiciones Totales (+)", f"+{stats.get('adiciones', 0)}", self.controller.colors["ok"]),
+            ("Eliminaciones Totales (-)", f"-{stats.get('eliminaciones', 0)}", self.controller.colors["red"]),
+            ("Archivos Nuevos", str(stats.get('archivos_nuevos', 0)), self.controller.colors["purple"])
+        ]
+
+        for title, val, color in metrics:
+            card = ttk.Frame(card_frame, style='Panel.TFrame', padding=15)
+            card.pack(side="left", fill="x", expand=True, padx=4)
+            ttk.Label(card, text=title, font=("Segoe UI", 9), foreground=self.controller.colors["muted"], background=self.controller.colors["panel"]).pack()
+            ttk.Label(card, text=val, font=("Segoe UI", 16, "bold"), foreground=color, background=self.controller.colors["panel"]).pack(pady=(4, 0))
+
+        ttk.Label(self.diff_text, text="Desglose por Archivo", font=("Segoe UI", 11, "bold"), style='App.TLabel').pack(anchor="w", pady=(10, 5))
+
+        cols = ("archivo", "estado", "adiciones", "eliminaciones")
+        tree = ttk.Treeview(self.diff_text, columns=cols, show="headings", height=8)
+
+        tree.heading("archivo", text="Nombre del Archivo")
+        tree.heading("estado", text="Estado del Cambio")
+        tree.heading("adiciones", text="Líneas Agregadas (+)")
+        tree.heading("eliminaciones", text="Líneas Eliminadas (-)")
+
+        tree.column("archivo", width=300)
+        tree.column("estado", width=120)
+        tree.column("adiciones", width=120)
+        tree.column("eliminaciones", width=120)
+
+        for a in archivos:
+            tree.insert("", "end", values=(a['nombre'], a['estado'].capitalize(), f"+{a['adiciones']}", f"-{a['eliminaciones']}"))
+
+        tree.pack(fill="both", expand=True)
 
 class HU007_Ramas(BaseFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, controller)
+        self.ramas_lista = []
+        self.chk_activa_var = tk.BooleanVar(value=False)
+
+    def on_show(self):
+        for widget in self.winfo_children():
+            widget.destroy()
+
         self.build_nav()
         
         content = ttk.Frame(self, style='App.TFrame', padding=20)
@@ -980,8 +1648,32 @@ class HU007_Ramas(BaseFrame):
         top = ttk.Frame(content, style='App.TFrame')
         top.pack(fill="x", pady=(0, 10))
         ttk.Label(top, text="Gestión de Ramas", style='Title.TLabel').pack(side="left")
+        ttk.Button(top, text="◀️ Volver al Panel", style='Primary.TButton', command=lambda: self.controller.show_frame("HU009_ListarRepositorios")).pack(side="right")
         ttk.Button(top, text="Sincronizar (Fetch)", style='Secondary.TButton', command=lambda: self.show_toast("Sincronización con remoto completada.", "info")).pack(side="right")
-        
+
+        repo = self.controller.proyecto_actual
+        if not repo:
+            ttk.Label(content, text="Selecciona un repositorio en el panel para gestionar sus ramas.", font=("Segoe UI", 11, "bold"), foreground=self.controller.colors["warn"], background=self.controller.colors["bg"]).pack(pady=40)
+            return
+
+        self.r_id = repo.id if hasattr(repo, 'id') else repo.get('id', 1)
+        self.r_nombre = repo.nombre if hasattr(repo, 'nombre') else repo.get('nombre', 'Proyecto')
+
+        # Tarjeta informativa del Repositorio
+        info_frame = ttk.Frame(content, style='Panel.TFrame', padding=10)
+        info_frame.pack(fill="x", pady=(0, 15))
+
+        ttk.Label(info_frame, text=f"📁 Repositorio: {self.r_nombre}", font=("Segoe UI", 10, "bold"), foreground=self.controller.colors["cyan"], background=self.controller.colors["panel"]).pack(side="left", padx=(0, 20))
+
+        try:
+            rama_activa = self.controller.facade.obtener_rama_activa(self.r_id)
+            nombre_activa = rama_activa.get('nombre') if isinstance(rama_activa, dict) else getattr(rama_activa, 'nombre', 'main')
+        except Exception:
+            nombre_activa = "main"
+
+        ttk.Label(info_frame, text=f"🌿 Rama Actual: {nombre_activa}", style='Chip.TLabel').pack(side="left")
+
+        # Formulario para Crear Nueva Rama
         # Nueva Rama Form
         new_box = ttk.LabelFrame(content, text="Crear Nueva Rama")
         new_box.pack(fill="x", pady=10, ipady=10, ipadx=10)
@@ -993,33 +1685,148 @@ class HU007_Ramas(BaseFrame):
         form_line.pack(fill="x")
         
         ttk.Label(form_line, text="Nombre:", style='Panel.TLabel').pack(side="left", padx=5)
-        self.b_name = ttk.Entry(form_line, font=("Segoe UI", 10))
+        self.b_name = ttk.Entry(form_line, font=("Segoe UI", 10), width=60)
         self.b_name.pack(side="left", padx=5)
         
         ttk.Label(form_line, text="Basada en:", style='Panel.TLabel').pack(side="left", padx=5)
-        self.b_base = ttk.Combobox(form_line, values=["main", "develop"], state="readonly", width=10)
+        self.b_base = ttk.Combobox(form_line, values=["main", "develop"], state="readonly", width=30)
         self.b_base.current(0)
         self.b_base.pack(side="left", padx=5)
-        
-        ttk.Button(form_line, text="Crear Rama", style='Primary.TButton', command=self.new_branch).pack(side="left", padx=15)
-        
-        # Lista de Ramas
-        self.tree = ttk.Treeview(content, columns=("Rama", "Estado", "Último Commit"), show="headings", height=8)
-        self.tree.heading("Rama", text="Nombre de Rama")
-        self.tree.heading("Estado", text="Estado")
-        self.tree.heading("Último Commit", text="Último Commit")
-        self.tree.insert("", "end", values=("🌿 main", "Activa", "Hace 2 horas (a1b2c3d)"))
-        self.tree.insert("", "end", values=("feature/login", "Desactualizada", "Ayer (f6e5d4c)"))
-        self.tree.pack(fill="both", expand=True, pady=10)
-        
-        ttk.Button(content, text="Cambiar a Rama Seleccionada (Checkout)", style='Secondary.TButton', command=lambda: self.show_toast("Checkout exitoso. Rama actual cambiada.", "success")).pack()
 
-    def new_branch(self):
-        name = self.b_name.get().strip()
-        if name:
-            self.show_toast(f"✓ Rama '{name}' creada exitosamente basada en {self.b_base.get()}.", "success")
-            self.tree.insert("", "end", values=(f"🌿 {name}", "Nueva / Activa", "Justo ahora"))
-            self.b_name.delete(0, 'end')
+        self.chk_activa = ttk.Checkbutton(
+            form_line,
+            text="Establecer como rama activa al crear",
+            variable=self.chk_activa_var,
+            style='TCheckbutton'
+        )
+        self.chk_activa.pack(side="left", padx=(0, 15))
+        
+        ttk.Button(form_line, text="Crear Rama", style='Primary.TButton', command=self.crear_nueva_rama).pack(side="left", padx=15)
+        
+        # Tabla de Ramas Existentes
+        list_header = ttk.Frame(content, style='App.TFrame')
+        list_header.pack(fill="x", pady=(5, 5))
+        ttk.Label(list_header, text="Ramas del Proyecto", font=("Segoe UI", 11, "bold"), style='App.TLabel').pack(side="left")
+
+        cols = ("id", "nombre", "estado", "fecha")
+        self.tree = ttk.Treeview(content, columns=cols, show="headings", height=7, selectmode="browse")
+
+        self.tree.heading("id", text="ID")
+        self.tree.heading("nombre", text="Nombre de Rama")
+        self.tree.heading("estado", text="Estado")
+        self.tree.heading("fecha", text="Fecha de Creación")
+
+        self.tree.column("id", width=60, anchor="center")
+        self.tree.column("nombre", width=250)
+        self.tree.column("estado", width=150, anchor="center")
+        self.tree.column("fecha", width=200, anchor="center")
+
+        v_sc = ttk.Scrollbar(content, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=v_sc.set)
+
+        self.tree.pack(side="top", fill="both", expand=True)
+
+        # Barra de Acciones para la Rama Seleccionada
+        action_bar = ttk.Frame(content, style='Panel.TFrame', padding=10)
+        action_bar.pack(fill="x", pady=(10, 0))
+
+        ttk.Label(action_bar, text="Acciones para la rama seleccionada:", style='Panel.TLabel').pack(side="left", padx=(0, 10))
+
+        self.btn_activar = ttk.Button(
+            action_bar,
+            text="⭐ Establecer como Rama Activa",
+            style='Primary.TButton',
+            command=self.activar_rama_seleccionada
+        )
+        self.btn_activar.pack(side="left", padx=5)
+
+        self.cargar_ramas()
+
+    def cargar_ramas(self):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        try:
+            self.ramas_lista = self.controller.facade.obtener_ramas_proyecto(self.r_id)
+        except Exception:
+            self.ramas_lista = []
+
+        if not self.ramas_lista:
+            self.ramas_lista = [{'id': 1, 'nombre': 'main', 'activa': 1, 'fecha_creacion': None}]
+
+        for r in self.ramas_lista:
+            r_id = r.get('id') if isinstance(r, dict) else getattr(r, 'id', '-')
+            r_nombre = r.get('nombre') if isinstance(r, dict) else getattr(r, 'nombre', '-')
+            es_activa = r.get('activa') if isinstance(r, dict) else getattr(r, 'activa', 0)
+            f_creacion = r.get('fecha_creacion') if isinstance(r, dict) else getattr(r, 'fecha_creacion', None)
+
+            estado_str = "🟢 ACTIVA (Actual)" if es_activa == 'Si' else "⚪ Inactiva"
+            fecha_str = formatear_fecha_relativa(f_creacion) if f_creacion else "-"
+
+            self.tree.insert("", "end", iid=str(r_id), values=(r_id, f"🌿 {r_nombre}", estado_str, fecha_str))
+
+    def crear_nueva_rama(self):
+        nombre = self.b_name.get().strip()
+        hacer_activa = self.chk_activa_var.get()
+        var_activa = ""
+
+        if hacer_activa:
+            var_activa = 'Si'
+        else:
+            var_activa = 'No'
+
+
+        if not nombre:
+            #self.show_toast("Por favor, ingresa un nombre para la nueva rama.", "warn")
+            return
+
+        try:
+            res = self.controller.facade.crear_rama(
+                id_proyecto=self.r_id,
+                nombre_rama=nombre,
+                id_version_base=None,
+                activa=var_activa
+            )
+            if res:
+                #self.show_toast(f"✓ Rama '{nombre}' creada exitosamente.", "success")
+                self.b_name.delete(0, 'end')
+                self.chk_activa_var.set(False)
+                self.on_show()
+            else:
+                print("No se pudo crear la rama.")
+                #self.show_toast("No se pudo crear la rama.", "error")
+        except Exception as e:
+            print(f"Error: {e}")
+            #self.show_toast(f"Error: {e}", "error")
+
+    def activar_rama_seleccionada(self):
+        selected = self.tree.selection()
+        if not selected:
+            self.show_toast("Selecciona una rama de la lista para establecerla como activa.", "warn")
+            return
+
+        id_rama = selected[0]
+
+        rama_obj = next((r for r in self.ramas_lista if str(r.get('id') if isinstance(r, dict) else getattr(r, 'id', '')) == str(id_rama)), None)
+
+        if not rama_obj:
+            return
+
+        nombre_rama = rama_obj.get('nombre') if isinstance(rama_obj, dict) else getattr(rama_obj, 'nombre', '')
+        es_activa = rama_obj.get('activa') if isinstance(rama_obj, dict) else getattr(rama_obj, 'activa', 0)
+
+        if es_activa == 'Si':
+            print(f"La rama '{nombre_rama}' ya es la rama activa del proyecto.")
+            #self.show_toast(f"La rama '{nombre_rama}' ya es la rama activa del proyecto.", "warn")
+            return
+
+        try:
+            self.controller.facade.cambiar_rama_activa(self.r_id, id_rama)
+            #self.show_toast(f"✓ La rama '{nombre_rama}' es ahora la rama activa.", "success")
+            self.on_show()
+        except Exception as e:
+            print(f"Error al activar la rama: {e}")
+            #self.show_toast(f"Error al activar la rama: {e}", "error")
 
 class HU008_Merge(BaseFrame):
     def __init__(self, parent, controller):
@@ -1088,10 +1895,25 @@ class HU008_Merge(BaseFrame):
 class HU010_EliminarRepo(BaseFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, controller)
-        self.build_nav()
+
+    def on_show(self):
+        for widget in self.winfo_children():
+            widget.destroy()
+
         
         box = ttk.Frame(self, style='Panel.TFrame', padding=30)
         box.pack(pady=40, fill="x", padx=40)
+
+        repo = self.controller.proyecto_actual
+        if not repo:
+            ttk.Label(box, text="⚠️ No hay ningún repositorio seleccionado.", font=("Segoe UI", 12, "bold"), foreground=self.controller.colors["warn"], background=self.controller.colors["panel"]).pack(pady=20)
+            ttk.Button(box, text="Volver al Listado de Repositorios", style="Primary.TButton", command=lambda: self.controller.show_frame("HU009_ListarRepositorios")).pack()
+            return
+
+        self.r_id = repo.get("id") if isinstance(repo, dict) else getattr(repo, "id", 1)
+        self.r_nombre = repo.get("nombre") if isinstance(repo, dict) else getattr(repo, "nombre", "Repositorio")
+        self.r_ruta = repo.get("ruta", "") if isinstance(repo, dict) else getattr(repo, "ruta", "")
+        self.rama_act = self.controller.facade.obtener_rama_activa(self.r_id)
         
         # Opciones extra de Backup antes del peligro
         safe_zone = ttk.Frame(box, style='Panel.TFrame')
@@ -1109,31 +1931,44 @@ class HU010_EliminarRepo(BaseFrame):
         # Zona de Peligro
         ttk.Label(box, text="Zona de Peligro", font=("Segoe UI", 16, "bold"), foreground=self.controller.colors["red"], background=self.controller.colors["panel"]).pack(anchor="w")
         
-        ttk.Label(box, text="Repositorio a eliminar: mi-proyecto-python", font=("Segoe UI", 11, "bold"), foreground=self.controller.colors["text"], background=self.controller.colors["panel"]).pack(anchor="w", pady=(10, 5))
+        ttk.Label(box, text=f"Repositorio a eliminar: '{self.r_nombre}'", font=("Segoe UI", 11, "bold"), foreground=self.controller.colors["text"], background=self.controller.colors["panel"]).pack(anchor="w", pady=(10, 5))
         
-        ttk.Label(box, text="Rama actual: main", style='Chip.TLabel').pack(anchor="w", pady=5)
+        ttk.Label(box, text=f"Rama actual: {self.rama_act.nombre}", style='Chip.TLabel').pack(anchor="w", pady=5)
         ttk.Label(box, text="Esta acción es irreversible. Se eliminará el código de todas las ramas, el historial de commits y las configuraciones.", style='Panel.TLabel').pack(anchor="w", pady=5)
-        ttk.Label(box, text="Para confirmar, escribe: mi-proyecto-python", font=("Segoe UI", 10, "bold"), background=self.controller.colors["panel"], foreground=self.controller.colors["text"]).pack(anchor="w", pady=15)
+        ttk.Label(box, text=f"Para confirmar, escribe: {self.r_nombre}", font=("Segoe UI", 10, "bold"), background=self.controller.colors["panel"], foreground=self.controller.colors["text"]).pack(anchor="w", pady=15)
         
-        self.confirm = ttk.Entry(box, font=("Segoe UI", 11))
-        self.confirm.pack(fill="x", pady=5)
-        self.confirm.bind("<KeyRelease>", self.check)
+        self.confirm_entry = ttk.Entry(box, font=("Segoe UI", 11))
+        self.confirm_entry.pack(fill="x", pady=5)
+        self.confirm_entry.bind("<KeyRelease>", self.validar_confirmacion)
+
+        btn_box = ttk.Frame(box, style='Panel.TFrame')
+        btn_box.pack(fill="x")
         
-        self.del_btn = ttk.Button(box, text="Eliminar Definitivamente", style='Danger.TButton', command=self.delete, state="disabled")
-        self.del_btn.pack(fill="x", pady=15)
+        self.del_btn = ttk.Button(btn_box, text="Eliminar Definitivamente", style='Danger.TButton', command=self.confirmar_eliminacion, state="disabled")
+        self.del_btn.pack(side="left", padx=(0, 10))
+
+        ttk.Button(
+            btn_box, 
+            text="Cancelar", 
+            style="Secondary.TButton", 
+            command=lambda: self.controller.show_frame("HU009_ListarRepositorios")
+        ).pack(side="left")
         
-    def check(self, event=None):
-        if self.confirm.get() == "mi-proyecto-python":
+    def validar_confirmacion(self, event=None):
+        if self.confirm_entry.get().strip() == self.r_nombre:
             self.del_btn.config(state="normal")
-            self.show_toast("✓ Nombre de confirmación correcto.", "success")
         else:
             self.del_btn.config(state="disabled")
-            
-    def delete(self):
-        if messagebox.askyesno("Seguridad Modal", "Estás a punto de eliminar permanentemente el repositorio.\n¿Estás completamente seguro?"):
-            self.show_toast("✓ Repositorio eliminado de forma permanente. Auditoría registrada.", "error")
-            self.confirm.delete(0, 'end')
-            self.del_btn.config(state="disabled")
+
+    def confirmar_eliminacion(self):
+        try:
+            self.controller.facade.eliminar_proyecto(self.r_id)
+            self.controller.set_proyecto_actual(None)
+            #self.show_toast(f"✓ El repositorio '{self.r_nombre}' ha sido eliminado.", "success")
+            self.controller.show_frame("HU009_ListarRepositorios")
+        except Exception as e:
+            pass
+            #self.show_toast(f"Error al eliminar repositorio: {e}", "error")
 
 # Ejecución
 if __name__ == "__main__":

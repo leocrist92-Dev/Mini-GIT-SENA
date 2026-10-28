@@ -1,6 +1,6 @@
-from Aplicacion.Servicios.ServicioUsuarios import ServicioUsuarios
-from Aplicacion.Servicios.ServicioProyectos import ServicioProyectos
-#from Aplicacion.Servicios.servicioArchivos import ServicioArchivos
+from Aplicacion.Servicios.servicioUsuarios import ServicioUsuarios
+from Aplicacion.Servicios.servicioProyectos import ServicioProyectos
+from Aplicacion.Servicios.servicioArchivos import ServicioArchivos
 from Aplicacion.Servicios.servicioVersionado import ServicioVersionado
 from Aplicacion.Servicios.servicioEtiquetas import ServicioEtiquetas
 
@@ -12,7 +12,7 @@ class MiniGitFacade:
     def __init__(self):
         self.srv_usuarios = ServicioUsuarios()
         self.srv_proyectos = ServicioProyectos()
-        #self.srv_archivos = ServicioArchivos()
+        self.srv_archivos = ServicioArchivos()
         self.srv_versionado = ServicioVersionado()
         self.srv_etiquetas = ServicioEtiquetas()
 
@@ -21,7 +21,7 @@ class MiniGitFacade:
         return self.srv_usuarios.autenticar(correo, password)
 
     def registrar(self, nombre, correo, usuario, password):
-        return self.srv_usuarios.registrar_usuario(nombre, correo, usuario, password)
+        return self.srv_usuarios.registrar(nombre, correo, usuario, password)
 
     def listar_usuarios(self):
         return self.srv_usuarios.listar_usuarios()
@@ -65,11 +65,37 @@ class MiniGitFacade:
     def comparar_versiones(self, id_version1, id_version2):
         return self.srv_versionado.comparar_versiones(id_version1, id_version2)
 
+    def resolver_ruta_zip_valida(self, id_proyecto, ruta_zip_db, hash_version=None):
+        """
+        Delega la resolución dinámica de la ruta del archivo ZIP.
+        """
+        return self.srv_versionado.resolver_ruta_zip_valida(id_proyecto, ruta_zip_db, hash_version)
+
     def crear_rama(self, id_proyecto, nombre_rama, id_version_base, activa):
         return self.srv_versionado.crear_rama(id_proyecto, nombre_rama, id_version_base, activa)
 
+    def obtener_ramas_proyecto(self, id_proyecto):
+        return self.srv_versionado.obtener_ramas_proyecto(id_proyecto)
+
+    def cambiar_rama_activa(self, id_proyecto, id_rama):
+        return self.srv_versionado.cambiar_rama_activa(id_proyecto, id_rama)
+
+    def obtener_rama_activa(self, id_proyecto):
+        return self.srv_versionado.obtener_rama_activa(id_proyecto)
+
     def restaurar_version(self, id_proyecto, id_version):
         return self.srv_versionado.restaurar_version(id_proyecto, id_version)
+
+    #Para commits
+    def escanean_y_calcular_diferencias(self, id_proyecto, ruta_proyecto):
+        return self.srv_versionado.escanean_y_calcular_diferencias(id_proyecto, ruta_proyecto)
+
+    def crear_commit_completo(self, id_proyecto, id_usuario, lista_archivos, mensaje, descripcion = None, diff_texto=""):
+        return self.srv_versionado.crear_commit_completo(id_proyecto, id_usuario, lista_archivos, mensaje, descripcion, diff_texto)
+
+    # --- Historial ---
+    def obtener_historial_proyecto(self, id_proyecto):
+        return self.srv_versionado.obtener_historial_proyecto(id_proyecto)
 
     # --- Puntos de Acceso UI : Etiquetas ---
     def crear_etiqueta(self, id_proyecto, nombre, descripcion):
@@ -77,8 +103,3 @@ class MiniGitFacade:
 
     def asignar_etiqueta_a_version(self, id_version, id_etiqueta):
         return self.srv_etiquetas.asignar_etiqueta_a_version(id_version, id_etiqueta)
-
-if __name__ == "__main__":
-    print("Iniciando capa Facade de Mini-Git separada en módulos.")
-    app = MiniGitFacade()
-    print("Módulos cargados con éxito. La base de datos y la interfaz gráfica pueden comenzar a consumir las funciones.")

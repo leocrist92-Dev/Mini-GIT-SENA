@@ -191,7 +191,6 @@ class RepositoriosDAO:
             return res[0]['ultima_fecha']
         return None
 
-
     # --- Archivos ---
     def insertar_archivo(self, id_proyecto, id_tipo, nombre):
         q = "INSERT INTO archivos (id_proyecto, id_tipo, nombre) VALUES (%s, %s, %s);"
@@ -203,12 +202,6 @@ class RepositoriosDAO:
         return [Archivo(a['id'], a['id_proyecto'], a['id_tipo'], a['nombre'], a['fecha_creacion']) for a in res]
 
     # --- Versionado (Commits y Ramas) ---
-    def insertar_version(self, id_archivo, id_usuario, hash_version, mensaje, contenido_comprimido):
-        q = """INSERT INTO versiones_archivo 
-               (id_archivo, id_usuario, hash_version, mensaje, contenido_comprimido) 
-               VALUES (%s, %s, %s, %s, %s);"""
-        return self._ejecutar(q, (id_archivo, id_usuario, hash_version, mensaje, contenido_comprimido))
-
     def obtener_versiones_proyecto_desc(self, id_proyecto):
         # Se solicita ORDER BY fecha DESC
         q = """
@@ -225,11 +218,122 @@ class RepositoriosDAO:
         q = "INSERT INTO ramas (id_proyecto, nombre, id_version_base, activa) VALUES (%s, %s, %s, %s);"
         return self._ejecutar(q, (id_proyecto, nombre_rama, id_version_base, activa))
 
+    def obtener_rama_activa(self, id_proyecto):
+        """Obtiene el nombre de la rama activa principal para un proyecto."""
+        q = "SELECT * FROM ramas WHERE id_proyecto = %s AND activa = 'Si';"
+        res = self._ejecutar(q, (id_proyecto,), fetch=True)
+        if res and len(res) > 0 and res[0]['nombre']:
+            r = res[0]
+            return Rama(r['id'], r['id_proyecto'], r['nombre'], r['id_version_base'], r['fecha_creacion'], r['activa'])
+        return None
+
+    def obtener_ramas_proyecto(self, id_proyecto):
+        """
+        Obtiene el listado completo de ramas pertenecientes a un proyecto.
+        """
+        q = """
+            SELECT id, id_proyecto, nombre, activa, fecha_creacion
+            FROM ramas
+            WHERE id_proyecto = %s
+            ORDER BY activa DESC, nombre ASC;
+        """
+        return self._ejecutar(q, (id_proyecto,), fetch=True) or []
+
+    def desactivar_todas_ramas_proyecto(self, id_proyecto):
+        """
+        Desactiva todas las ramas marcando activa = 0 para el proyecto indicado.
+        """
+        q = "UPDATE ramas SET activa = 'No' WHERE id_proyecto = %s;"
+        return self._ejecutar(q, (id_proyecto,))
+
+    def cambiar_rama_activa(self, id_proyecto, id_rama):
+        """
+        Establece la rama especificada como activa desmarcando las demás.
+        """
+        self.desactivar_todas_ramas_proyecto(id_proyecto)
+        q = "UPDATE ramas SET activa = 'Si' WHERE id = %s AND id_proyecto = %s;"
+        return self._ejecutar(q, (id_rama, id_proyecto))
+
+    def existe_hash_version_en_proyecto(self, id_proyecto, hash_version):
+        """Verifica si ya existe una versión con el mismo hash SHA-1 en el proyecto especifico."""
+        q = """
+            SELECT COUNT(*) as total
+            FROM versiones_archivo v
+            JOIN archivos a ON v.id_archivo = a.id
+            WHERE a.id_proyecto = %s AND v.hash_version = %s;
+        """
+        res = self._ejecutar(q, (id_proyecto, hash_version), fetch=True)
+        if res and len(res) > 0 and res[0]['total'] is not None:
+            return res[0]['total'] > 0
+        return False
+
     # --- Etiquetas ---
-    def insertar_etiqueta(self, id_proyecto, nombre, descripcion):
-        q = "INSERT INTO etiquetas (id_proyecto, nombre, descripcion) VALUES (%s, %s, %s);"
-        return self._ejecutar(q, (id_proyecto, nombre, descripcion))
+    def insertar_etiqueta(self, id_usuario, hash_version, mensaje, descripcion, ruta_zip, id_rama):
+        """
+        Inserta los metadatos globales del commit en la tabla 'etiqueta'.
+        Retorna el id (PRIMARY KEY AUTO_INCREMENT) recién generado.
+        """
+        q = """
+            INSERT INTO etiquetas (id_usuario, hash_version, mensaje, descripcion, contenido_comprimido, id_rama)
+            VALUES (%s, %s, %s, %s, %s, %s);
+        """
+        return self._ejecutar(q, (id_usuario, hash_version, mensaje, descripcion, ruta_zip, id_rama))
 
     def insertar_version_etiqueta(self, id_version, id_etiqueta):
         q = "INSERT INTO versiones_etiquetas (id_version, id_etiqueta) VALUES (%s, %s);"
         return self._ejecutar(q, (id_version, id_etiqueta))
+
+    def obtener_etiqueta_por_id(self, id_etiqueta):
+        """
+        Obtiene los datos completos de un commit desde la tabla 'etiqueta' por su ID.
+        """
+        q = """
+            SELECT e.id, e.id_usuario, e.hash_version, e.mensaje, e.descripcion,
+                   e.contenido_comprimido, e.fecha, e.id_rama, u.nombre AS autor, r.nombre AS rama
+            FROM etiquetas e
+            INNER JOIN usuarios u ON e.id_usuario = u.id
+            LEFT JOIN ramas r ON e.id_rama = r.id
+            WHERE e.id = %s LIMIT 1;
+        """
+        res = self._ejecutar(q, (id_etiqueta,), fetch=True)
+        return res[0] if res else None
+
+    # --- Historial ---
+    def obtener_historial_commits_proyecto(self, id_proyecto):
+        """
+        Consulta el historial de commits uniendo la tabla 'etiqueta' con 'versiones_archivo'
+        y concatenando los nombres de los archivos agrupados por commit.
+        """
+        q = """
+            SELECT 
+                e.id AS id,
+                e.hash_version,
+                e.mensaje,
+                e.descripcion,
+                e.fecha,
+                e.contenido_comprimido,
+                u.nombre AS autor,
+                r.nombre AS rama,
+                GROUP_CONCAT(DISTINCT a.nombre SEPARATOR ', ') AS nombre_archivo
+            FROM etiquetas e
+            INNER JOIN versiones_archivo va ON e.id = va.id_etiqueta
+            INNER JOIN archivos a ON va.id_archivo = a.id
+            INNER JOIN usuarios u ON e.id_usuario = u.id
+            LEFT JOIN ramas r ON e.id_rama = r.id
+            WHERE a.id_proyecto = %s
+            GROUP BY e.id, e.hash_version, e.mensaje, e.descripcion, e.fecha, e.contenido_comprimido, u.nombre, r.nombre
+            ORDER BY e.fecha DESC;
+        """
+        return self._ejecutar(q, (id_proyecto,), fetch=True) or []
+
+    def existe_hash_version_en_proyecto(self, id_proyecto, hash_ver):
+        q = """
+            SELECT e.id FROM etiqueta e
+            INNER JOIN versiones_archivos va ON e.id = va.id_etiqueta
+            INNER JOIN archivos a ON va.id_archivo = a.id
+            WHERE a.id_proyecto = %s AND e.hash_version = %s LIMIT 1;
+        """
+        res = self._ejecutar(q, (id_proyecto, hash_ver), fetch=True)
+        return len(res) > 0 if res else False
+
+    
