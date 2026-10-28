@@ -6,21 +6,18 @@ from Infraestructura.repositorios_dao import RepositoriosDAO
 class ServicioProyectos:
     def __init__(self):
         self.dao = RepositoriosDAO()
+        # Ruta base física donde se alojarán las carpetas de los repos
+        self.ruta_base = os.path.expanduser("~/.minigit")
 
-    def crear_proyecto(
-        self,
-        id_usuario,
-        nombre,
-        descripcion="",
-        ruta=None,
-        visibilidad="Privado"
-    ):
+    def crear_proyecto(self, id_usuario, nombre, descripcion, ruta, visibilidad):
         """Crea la carpeta física y hace el INSERT en la tabla."""
+        #ruta_proyecto = os.path.join(self.ruta_base, nombre)
         ruta_proyecto = os.path.join(ruta, nombre)
         
         # 1. Crear carpeta física
         if not os.path.exists(ruta_proyecto):
             os.makedirs(ruta_proyecto)
+            #print(f"Carpeta física creada: {ruta_proyecto}")
         else:
             raise Exception("Ya existe una carpeta con ese nombre en el servidor local.")
 

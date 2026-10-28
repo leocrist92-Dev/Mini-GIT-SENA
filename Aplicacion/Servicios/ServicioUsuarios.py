@@ -6,8 +6,6 @@ class ServicioUsuarios:
     def __init__(self):
         self.dao = RepositoriosDAO()
         self.intentos_fallidos = {}  # Memoria para contar intentos
-        self.usuarios = []
-        self.siguiente_id = 1
 
     def _hashear(self, texto):
         return hashlib.sha256(texto.encode()).hexdigest()
@@ -39,34 +37,15 @@ class ServicioUsuarios:
                 print(f"La cuenta {correo} ha sido bloqueada tras 3 intentos fallidos.")
             return None
 
-    def registrar_usuario(
-        self,
-        nombre,
-        correo,
-        nombre_usuario,
-        password_hash                                                                               
-    ):
-        self.usuarios = self.dao.obtener_usuario_por_correo(correo)
-        """for usuario in self.usuarios:
-            if usuario.correo == correo:
-                raise ValueError("Ya existe un usuario con ese correo.")
-
-            if usuario.nombre_usuario == nombre_usuario:
-                raise ValueError("Ese nombre de usuario ya existe.")"""
-
-        pass_hash = self._hashear(password_hash)
-        nuevo_id = self.dao.insertar_usuario(nombre, correo, nombre_usuario, pass_hash)
-
+    def registrar(self, nombre, correo, usuario, password):
+        existente = self.dao.obtener_usuario_por_correo(correo)
+        if existente:
+            raise Exception("El correo ya se encuentra registrado.")
+            
+        pass_hash = self._hashear(password)
+        nuevo_id = self.dao.insertar_usuario(nombre, correo, usuario, pass_hash)
         if nuevo_id:
-            usuario = Usuario(
-                id=self.siguiente_id,
-                nombre=nombre,
-                correo=correo,
-                nombre_usuario=nombre_usuario,
-                password_hash=pass_hash
-            )
-            return usuario
-        
+            return Usuario(nuevo_id, nombre, correo, usuario, pass_hash)
         return None
 
     def listar_usuarios(self):
