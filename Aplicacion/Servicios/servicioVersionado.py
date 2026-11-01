@@ -92,7 +92,6 @@ class ServicioVersionado:
         """
         ruta_valida = self.resolver_ruta_zip_valida(id_proyecto, ruta_zip, hash_version)
         if not ruta_valida or not os.path.exists(ruta_valida):
-        #if not ruta_zip or not os.path.exists(ruta_zip):
             return None
         try:
             with zipfile.ZipFile(ruta_valida, 'r') as zf:

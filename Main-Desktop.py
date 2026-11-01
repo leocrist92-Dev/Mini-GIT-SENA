@@ -156,23 +156,6 @@ class BaseFrame(ttk.Frame):
     def hide_toast(self):
         self.toast_frame.pack_forget()
 
-    def build_nav(self):
-        nav_frame = ttk.Frame(self, style='Panel.TFrame')
-        nav_frame.pack(side="top", fill="x", pady=(0, 10))
-        
-        ttk.Label(nav_frame, text="Mini-Git", font=("Segoe UI", 14, "bold"), foreground=self.controller.colors["purple"], background=self.controller.colors["panel"]).pack(side="left", padx=20, pady=10)
-        
-        views = [
-            ("Repos", "HU009_ListarRepositorios"), ("Crear", "HU003_CrearRepo"),
-            ("Commit", "HU004_Commit"), ("Historial", "HU005_Historial"),
-            ("Diff", "HU006_Diff"), ("Ramas", "HU007_Ramas"),
-            ("Merge", "HU008_Merge"), ("Eliminar", "HU010_EliminarRepo"),
-            ("Salir", "HU001_Login")
-        ]
-        
-        for text, frame_name in views:
-            btn = ttk.Button(nav_frame, text=text, style='Secondary.TButton', command=lambda f=frame_name: self.controller.show_frame(f))
-            btn.pack(side="left", padx=2)
 
 def formatear_fecha_relativa(fecha_val):
     if not fecha_val:
@@ -366,7 +349,6 @@ class HU002_Registro(BaseFrame):
 class HU009_ListarRepositorios(BaseFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, controller)
-        self.build_nav()
         self.repos = []
         self.filtered_repos = []
         self.search_var = tk.StringVar()
@@ -769,7 +751,6 @@ class HU003_CrearRepo(BaseFrame):
 class HU004_Commit(BaseFrame):
     def __init__(self, parent, controller):
         super().__init__(parent, controller)
-        #self.build_nav()
         self.cambios_detectados = []
         self.check_vars = {}
         self.diff_texto_actual = ""
@@ -1038,7 +1019,6 @@ class HU005_Historial(BaseFrame):
             widget.destroy()
 
         self.search_var.set("")
-        #self.build_nav()
 
         content = ttk.Frame(self, style='App.TFrame', padding=20)
         content.pack(fill="both", expand=True)
@@ -1375,8 +1355,6 @@ class HU006_Diff(BaseFrame):
     def on_show(self):
         for widget in self.winfo_children():
             widget.destroy()
-
-        #self.build_nav()
         
         content = ttk.Frame(self, style='App.TFrame', padding=20)
         content.pack(fill="both", expand=True)
@@ -1637,8 +1615,6 @@ class HU007_Ramas(BaseFrame):
     def on_show(self):
         for widget in self.winfo_children():
             widget.destroy()
-
-        #self.build_nav()
         
         content = ttk.Frame(self, style='App.TFrame', padding=20)
         content.pack(fill="both", expand=True)
